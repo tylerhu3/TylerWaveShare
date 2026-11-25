@@ -10,18 +10,23 @@ idf_component_register(
         port_esp.c
         rec_store.c
         splash.c
+        super_mouse_net.c
         usb_export.c
+        usb_hid.c
         usb_msc.c
         apps/app_alarm.c
         apps/app_calc.c
+        apps/app_cheer.c
         apps/app_clock.c
         apps/app_games.c
         apps/app_keys.c
         apps/app_meet.c
         apps/app_mouse.c
+        apps/app_panda.c
         apps/app_present.c
         apps/app_settings.c
         apps/app_stopwatch.c
+        apps/app_super_mouse.c
         apps/app_timer.c
         apps/app_type.c
         apps/app_water.c
@@ -34,6 +39,7 @@ idf_component_register(
         ble/hid_mouse.c
         ble/time_svc.c
         assets/app_icon_calc.c
+        assets/app_icon_cheer.c
         assets/app_icon_clock.c
         assets/app_icon_earth.c
         assets/app_icon_games.c
@@ -41,9 +47,12 @@ idf_component_register(
         assets/app_icon_meet.c
         assets/app_icon_moon.c
         assets/app_icon_mouse.c
+        assets/app_icon_panda.c
         assets/app_icon_present.c
+        assets/app_icon_super_mouse.c
         assets/app_icon_timer.c
         assets/app_icon_type.c
         assets/app_icon_water.c
         assets/icon_gear.c
+        assets/panda_gif.c
     INCLUDE_DIRS "." "apps" "ble" "usb")

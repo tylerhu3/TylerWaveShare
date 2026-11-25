@@ -132,7 +132,7 @@ static uint32_t s_base_ms;      /* when it started running */
 static uint32_t s_acc_ms;       /* what piled up while it was stopped */
 static uint32_t s_lap_ms;       /* where the last lap was taken */
 static uint32_t s_press_ms;
-static lv_point_t s_press_pt;   /* 누르기 시작한 자리 — 쓸기와 가른다 */
+static lv_point_t s_press_pt;   /* press origin — distinguishes taps from swipes */
 static bool     s_long_done;
 
 static uint32_t elapsed(void)
@@ -211,9 +211,9 @@ static void press_cb(lv_event_t *e)
     if (code == LV_EVENT_PRESSED) {
         s_press_ms = lv_tick_get();
         s_long_done = false;
-        /* 🚨 **쓸기를 탭으로 읽던 것을 막는다(0921).** 앱을 나가려고 화면을
-         * 쓸었는데 스톱워치가 출발해 버렸다. 누른 자리를 적어 두고, 뗄 때
-         * 60px 넘게 움직였으면 탭으로 안 친다 — Wire Keys 가 쓰는 그 수다. */
+        /* 🚨 Prevent swipes from registering as taps: swiping out of the app used to
+         * start the stopwatch. Record the press origin and ignore releases that moved
+         * >= 60 px (same threshold as the keys app). */
         lv_indev_t *in = lv_indev_active();
         if (in) lv_indev_get_point(in, &s_press_pt);
         else    s_press_pt.x = s_press_pt.y = 0;
@@ -234,7 +234,7 @@ static void press_cb(lv_event_t *e)
 
     if (code == LV_EVENT_RELEASED) {
         if (s_long_done) return;
-        /* 🚨 손이 많이 움직였으면 쓸기다 — 출발시키지 않는다. */
+        /* 🚨 Ignore release if the finger moved enough to be a swipe. */
         lv_indev_t *in = lv_indev_active();
         lv_point_t p = s_press_pt;
         if (in) lv_indev_get_point(in, &p);

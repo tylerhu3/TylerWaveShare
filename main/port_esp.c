@@ -104,6 +104,7 @@ static void rtc_write_now(void);
 static void time_synced_now(void);
 
 /* Called only when SNTP actually set the clock. This flag is the only proof of success. */
+#include <sys/time.h>
 static volatile bool s_sntp_done;
 static void sntp_got_time(struct timeval *tv) { (void)tv; s_sntp_done = true; }
 
@@ -1553,6 +1554,9 @@ void port_rtc_restore(void)
  * lying in the screen plane (X and Y) is "how far the badge is rotated". Flat
  * on a table that component vanishes and the angle becomes noise — which is
  * reported rather than returned. */
+#ifdef M_PI
+#undef M_PI   /* qmi8658.h redefines M_PI unconditionally */
+#endif
 #include "qmi8658.h"
 
 static qmi8658_dev_t s_imu;

@@ -1,4 +1,4 @@
-/* TinyUSB configuration — this badge uses only MSC (USB storage).
+/* TinyUSB configuration — MSC (USB storage) and HID (Super Mouse).
  *
  * 🚨 This file is **found and read by the tinyusb component itself** (from
  * `#include "tusb_config.h"` inside tusb_option.h). But that component's
@@ -19,11 +19,11 @@
 #define CFG_TUSB_MEM_ALIGN        __attribute__((aligned(4)))
 #define CFG_TUD_ENDPOINT0_SIZE    64
 
-/* One class in use, everything else off. Left on, the linker blows up over a
- * missing callback for that class, or unused buffers eat RAM. */
+/* Only MSC and HID are enabled; leaving unused classes on bloats RAM or fails
+ * to link on missing callbacks. */
 #define CFG_TUD_MSC               1
 #define CFG_TUD_CDC               0
-#define CFG_TUD_HID               0
+#define CFG_TUD_HID               1
 #define CFG_TUD_MIDI              0
 #define CFG_TUD_AUDIO             0
 #define CFG_TUD_VIDEO             0
@@ -36,3 +36,4 @@
 
 /* One sector (512 B) at a time. Our volume is built in sectors, so it fits exactly. */
 #define CFG_TUD_MSC_EP_BUFSIZE    512
+#define CFG_TUD_HID_EP_BUFSIZE    16

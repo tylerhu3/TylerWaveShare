@@ -335,10 +335,15 @@ bool port_hid_start(void)
      * 66 KB is the bar — above the 62 KB measured, and still below the 69-75 KB
      * that is free with an app open. */
     size_t have = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    if (!s_inited && have < 66 * 1024) {
-        ESP_LOGW(TAG, "not starting BLE: internal RAM %uKB, needs 66KB "
+#ifdef CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST
+    const size_t min_ble_ram = 36 * 1024;
+#else
+    const size_t min_ble_ram = 66 * 1024;
+#endif
+    if (!s_inited && have < min_ble_ram) {
+        ESP_LOGW(TAG, "not starting BLE: internal RAM %uKB, needs %uKB "
                       "(WiFi is probably still up for the clock)",
-                 (unsigned)(have / 1024));
+                 (unsigned)(have / 1024), (unsigned)(min_ble_ram / 1024));
         snprintf(s_peer, sizeof(s_peer), "busy — try again");
         if (s_pm_held) { port_pm_hold(false); s_pm_held = false; }
         return false;
@@ -415,6 +420,17 @@ void port_hid_stop(void)
 bool        port_hid_connected(void) { return s_connected; }
 bool        port_hid_up(void)        { return s_inited; }
 
+/* Pause idle BLE advertising while Super Mouse is outputting over USB so the
+ * shared 2.4 GHz antenna isn't time-sliced away from Wi-Fi. */
+void badge_ble_adv_pause(bool pause)
+{
+    if (!s_inited || s_connected) return;
+    if (pause)
+        esp_ble_gap_stop_advertising();
+    else
+        esp_hid_ble_gap_adv_start();
+}
+
 /* Forget every paired device.
  * 🚨 The badge remembers several hosts, so there is no need to unpair from
  * the phone — but when the badge starts advertising, a nearby phone grabs it
@@ -446,6 +462,27 @@ void port_hid_key(unsigned modifier, unsigned keycode)
     vTaskDelay(pdMS_TO_TICKS(20));
     memset(rpt, 0, sizeof(rpt));
     esp_hidd_dev_input_set(s_dev, 0, 2, rpt, sizeof(rpt));
+}
+
+void port_hid_keyboard_report(uint8_t modifiers, const uint8_t keys[6])
+{
+    if (!s_dev || !s_connected) return;
+    uint8_t rpt[8] = { modifiers, 0, 0, 0, 0, 0, 0, 0 };
+    if (keys) memcpy(&rpt[2], keys, 6);
+    if (esp_hidd_dev_input_set(s_dev, 0, 2, rpt, sizeof(rpt)) != ESP_OK) {
+        s_connected = false;
+        snprintf(s_peer, sizeof(s_peer), "advertising");
+        esp_hid_ble_gap_adv_start();
+    }
+}
+
+void port_hid_release_all(void)
+{
+    if (!s_dev || !s_connected) return;
+    uint8_t kbd[8] = { 0 };
+    uint8_t mse[4] = { 0 };
+    esp_hidd_dev_input_set(s_dev, 0, 2, kbd, sizeof(kbd));
+    esp_hidd_dev_input_set(s_dev, 0, 1, mse, sizeof(mse));
 }
 
 /* ASCII to HID keycodes, US layout.

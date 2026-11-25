@@ -28,3 +28,11 @@ __pycache__/
 *.pyc
 docs/flash/*.bin
 docs/flash/manifest.json
+
+# Local editor, OS, and release staging artifacts
+.vscode/
+.DS_Store
+out/
+
+# Standalone Super Mouse backend/frontend sub-repo
+super-mouse/

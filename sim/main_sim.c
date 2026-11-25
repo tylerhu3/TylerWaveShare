@@ -267,7 +267,7 @@ static void serve_loop(void)
     setvbuf(stdout, NULL, _IOFBF, 1 << 20);
 
     while (fgets(line, sizeof(line), stdin)) {
-        switch (line[0]) {
+        switch ((unsigned char)line[0]) {
         case 'T': {
             int x, y, s;
             if (sscanf(line + 1, "%d %d %d", &x, &y, &s) == 3) {

@@ -20,6 +20,7 @@
  * 🚨 It cannot be bricked. However it fails, the ROM bootloader always comes
  * up as USB-Serial/JTAG — BOOT held with RESET can always reflash it. */
 #include "usb_export.h"
+#include "usb_hid.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_private/usb_phy.h"
@@ -80,17 +81,23 @@ static const char *const s_desc_str[] = {
     "Recordings",                   /* 4: the MSC interface */
 };
 
-const uint8_t *tud_descriptor_device_cb(void) { return (const uint8_t *)&s_desc_dev; }
+const uint8_t *tud_descriptor_device_cb(void)
+{
+    if (usb_hid_active()) return usb_hid_desc_device();
+    return (const uint8_t *)&s_desc_dev;
+}
 
 const uint8_t *tud_descriptor_configuration_cb(uint8_t index)
 {
     (void)index;
+    if (usb_hid_active()) return usb_hid_desc_config();
     return s_desc_cfg;
 }
 
 const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 {
     (void)langid;
+    if (usb_hid_active()) return usb_hid_desc_string(index);
     static uint16_t buf[32];
     uint8_t n;
     if (index == 0) {

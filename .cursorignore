@@ -1,0 +1,19 @@
+# Generated C/H pixel arrays (76k lines / 6.35 MB)
+main/assets/app_icon_*.c
+main/assets/icon_*.c
+main/assets/orb_tex_*.h
+
+# Media assets (8.75 MB)
+docs/img/
+
+# Large LVGL template header (1,545 lines) — read explicitly when tuning LVGL
+sim/lv_conf.h
+
+# Build, dependency, and screenshot outputs
+build/
+out/
+shots/
+managed_components/
+sim/lvgl/
+sim/lvgl_obj/
+sim/badge_obj/

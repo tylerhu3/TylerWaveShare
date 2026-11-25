@@ -151,6 +151,11 @@ int         port_wifi_try_state(void);
 void        port_wifi_last_ok(char *ssid, size_t ss);
 /* Press and release one key. Modifier bits: 1=Ctrl 2=Shift 4=Alt 8=GUI */
 void        port_hid_key(unsigned modifier, unsigned keycode);
+/* Send a full 6-key-rollover HID keyboard state report (non-blocking).
+ * Passing keys == NULL releases all non-modifier keys. */
+void        port_hid_keyboard_report(uint8_t modifiers, const uint8_t keys[6]);
+/* Release every held key and mouse button immediately (safety reset). */
+void        port_hid_release_all(void);
 /* Type an ASCII string on the keyboard. Characters it cannot produce are skipped. */
 void        port_hid_type(const char *s);
 uint32_t    port_hid_passkey(void);
@@ -301,3 +306,35 @@ void port_perf_hold(bool on);
 
 /* The background loop. In the simulator this does nothing and the caller drives it. */
 void port_task_start(const char *name, void (*fn)(void *), void *arg, int stack);
+
+/* ── Super Mouse (Wi-Fi WebSocket -> BLE or USB HID bridge) ─── */
+typedef enum {
+    SM_OFF = 0,
+    SM_WIFI_CONNECTING,
+    SM_WS_CONNECTING,
+    SM_CONNECTED,
+    SM_NO_URL,
+    SM_NO_WIFI,
+    SM_ERR,
+} sm_state_t;
+
+typedef enum {
+    SM_OUT_BLE = 0,
+    SM_OUT_USB,
+} sm_out_t;
+
+void       port_sm_start(void);
+void       port_sm_reconnect(void);
+void       port_sm_stop(void);
+void       port_sm_leave(void);       /* app exit: restores USB-Serial/JTAG if USB HID was used */
+sm_state_t port_sm_state(void);
+uint32_t   port_sm_rx_count(void);
+void       port_sm_last_event(char *out, size_t len);
+void       port_sm_url_get(char *out, size_t len);
+void       port_sm_url_set(const char *url);
+sm_out_t   port_sm_output_get(void);
+bool       port_sm_output_set(sm_out_t mode);
+bool       port_sm_usb_mounted(void);
+bool       port_sm_usb_used(void);
+void       port_sm_usb_error(char *out, size_t len);
+void       port_sm_release_all(void);

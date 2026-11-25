@@ -78,7 +78,8 @@ ESP_ONLY = {
     "port_esp.c",    # the board half of port.h (port_sim.c stands in)
     "display.c",     # QSPI panel bring-up
     "adpcm.c", "rec_store.c", "rec_upload.c",   # recording, flash-backed
-    "usb_export.c", "usb_msc.c",                # USB mass storage
+    "usb_export.c", "usb_msc.c", "usb_hid.c",   # USB mass storage & HID
+    "super_mouse_net.c",                        # Wi-Fi WebSocket bridge
 }
 
 BADGE_SRCS = [

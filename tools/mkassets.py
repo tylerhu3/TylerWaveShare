@@ -289,6 +289,68 @@ def make_app_icons():
     tm.putalpha(circle_mask(ICON))
     emit("app_icon_timer", tm, "RGB565A8")
 
+    # CheerLeader — cute Tamagotchi cheerleader pixel icon on dark indigo
+    ch = Image.new("RGBA", (ICON, ICON), (0x14, 0x17, 0x26, 255))
+    dc = ImageDraw.Draw(ch)
+    spr = [
+        ".PP..G......G..CC.",
+        "PPPP...KK..KK.CCCC",
+        ".PP...KYYKKYYK.CC.",
+        "..K..KYYYYYYYYK.K.",
+        "...KKYYYYYYYYYYKK.",
+        "...KYYKKYYKKYYK...",
+        "...KYPYYMMYYPYK...",
+        "...KYYYYMMYYYYK...",
+        "....KSSSSSSSSK....",
+        "..G..KYYYYYYK..G..",
+        ".....KYYKKYYK.....",
+        "....KK......KK....",
+    ]
+    pal = {
+        "K": (0x1A, 0x18, 0x26, 255), "Y": (0xFF, 0xE6, 0x80, 255),
+        "S": (0xF5, 0xC2, 0x42, 255), "P": (0xFF, 0x6B, 0x9D, 255),
+        "C": (0x5C, 0xE1, 0xE6, 255), "M": (0xFF, 0x4D, 0x6D, 255),
+        "G": (0xFF, 0xE0, 0x66, 255),
+    }
+    pxs = 5
+    ox = (ICON - len(spr[0]) * pxs) // 2
+    oy = (ICON - len(spr) * pxs) // 2 + 2
+    for ry, row in enumerate(spr):
+        for rx, c in enumerate(row):
+            if c in pal:
+                x0, y0 = ox + rx * pxs, oy + ry * pxs
+                dc.rectangle((x0, y0, x0 + pxs - 1, y0 + pxs - 1), fill=pal[c])
+    ch.putalpha(circle_mask(ICON))
+    emit("app_icon_cheer", ch, "RGB565A8")
+
+    # Super Mouse — wireless mouse with cyan signal arcs on deep navy
+    S6 = ICON * 4
+    sm = Image.new("RGBA", (S6, S6), (0x0E, 0x16, 0x28, 255))
+    dsm = ImageDraw.Draw(sm)
+    # Subtle inner ring
+    dsm.ellipse((S6 * 0.06, S6 * 0.06, S6 * 0.94, S6 * 0.94),
+                outline=(0x1E, 0x3A, 0x5F, 255), width=int(S6 * 0.02))
+    # Two cyan Wi-Fi arcs above the mouse
+    for rad, col in ((0.30, (0x38, 0xBD, 0xF8, 255)), (0.20, (0x7D, 0xD3, 0xFC, 255))):
+        cx, cy = S6 * 0.50, S6 * 0.44
+        r = S6 * rad
+        dsm.arc((cx - r, cy - r, cx + r, cy + r), 225, 315,
+                fill=col, width=int(S6 * 0.036))
+    # Mouse body (rounded capsule)
+    mx0, my0, mx1, my1 = S6 * 0.34, S6 * 0.38, S6 * 0.66, S6 * 0.80
+    dsm.rounded_rectangle((mx0, my0, mx1, my1), radius=S6 * 0.16,
+                          fill=(0xE8, 0xF0, 0xFE, 255))
+    # Left/right button divider + glowing cyan scroll wheel
+    dsm.line((S6 * 0.34, S6 * 0.54, S6 * 0.66, S6 * 0.54),
+             fill=(0x0E, 0x16, 0x28, 255), width=int(S6 * 0.022))
+    dsm.line((S6 * 0.50, S6 * 0.38, S6 * 0.50, S6 * 0.54),
+             fill=(0x0E, 0x16, 0x28, 255), width=int(S6 * 0.022))
+    dsm.rounded_rectangle((S6 * 0.475, S6 * 0.43, S6 * 0.525, S6 * 0.525),
+                          radius=S6 * 0.025, fill=(0x02, 0x84, 0xC7, 255))
+    sm = sm.resize((ICON, ICON), Image.LANCZOS)
+    sm.putalpha(circle_mask(ICON))
+    emit("app_icon_super_mouse", sm, "RGB565A8")
+
 
 def gear_icon(size):
     """Drawing the teeth as an SVG path never holds its shape. There are eight of them, worked out and drawn directly."""
@@ -332,8 +394,12 @@ def main():
               "app_icon_keys", "app_icon_type", "app_icon_present",
               "app_icon_calc", "app_icon_games", "app_icon_meet",
               "app_icon_water", "app_icon_moon", "app_icon_earth",
+              "app_icon_cheer", "app_icon_super_mouse", "app_icon_panda",
               "icon_gear"):
         hdr.append(f"extern const lv_image_dsc_t {n};")
+    hdr.append("")
+    hdr.append("extern const uint8_t panda_gif_data[];")
+    hdr.append("extern const uint32_t panda_gif_size;")
     hdr += [""] + defs + [""]
     open(os.path.join(OUT, "assets.h"), "w").write("\n".join(hdr) + "\n")
     print("assets.h written")

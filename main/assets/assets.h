@@ -14,6 +14,12 @@ extern const lv_image_dsc_t app_icon_meet;
 extern const lv_image_dsc_t app_icon_water;
 extern const lv_image_dsc_t app_icon_moon;
 extern const lv_image_dsc_t app_icon_earth;
+extern const lv_image_dsc_t app_icon_cheer;
+extern const lv_image_dsc_t app_icon_super_mouse;
+extern const lv_image_dsc_t app_icon_panda;
 extern const lv_image_dsc_t icon_gear;
+
+extern const uint8_t panda_gif_data[];
+extern const uint32_t panda_gif_size;
 
 
