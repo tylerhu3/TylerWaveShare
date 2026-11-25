@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1017" />
+  <title>Super Mouse — Remote BLE HID Controller</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <script>
+    try {
+      if (localStorage.getItem("super-mouse-theme") === "light") {
+        document.documentElement.dataset.theme = "light";
+      }
+    } catch {}
+  </script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-icon" src="/icon.svg" alt="" width="28" height="28" />
+      <span class="logo-dot" id="wsDot"></span>
+      <h1>Super Mouse</h1>
+    </div>
+    <div class="status-pills">
+      <span class="pill" id="badgePill">Badge: offline</span>
+      <span class="pill" id="blePill">BLE: --</span>
+      <span class="pill" id="battPill">Batt: --</span>
+      <span class="pill" id="rttPill">RTT: --</span>
+    </div>
+    <div class="conn-controls">
+      <input id="roomInput" type="text" value="badge1" placeholder="room" aria-label="Room ID" />
+      <input id="tokenInput" type="password" placeholder="token (optional)" aria-label="Auth Token" />
+      <button id="connectBtn" class="btn primary">Connect</button>
+      <button id="releaseBtn" class="btn danger">Release All</button>
+      <button id="themeToggleBtn" class="btn" type="button" aria-label="Toggle light or dark theme">Theme: Dark</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card pad-section">
+      <div class="card-head">
+        <h2>Mouse &amp; Keyboard Capture</h2>
+        <div class="pad-opts">
+          <label>Speed <input id="sensSlider" type="range" min="0.3" max="3.0" step="0.1" value="1.0" /> <span id="sensVal">1.0x</span></label>
+          <label class="chk"><input id="invertScroll" type="checkbox" /> Invert Scroll</label>
+          <label class="chk"><input id="capsCmd" type="checkbox" checked /> CapsLock &rarr; Cmd</label>
+        </div>
+      </div>
+
+      <div id="trackpad" class="trackpad" tabindex="0">
+        <div class="pad-overlay" id="padOverlay">
+          <div class="pad-title">Click here to capture Mouse &amp; Keyboard</div>
+          <div class="pad-sub">Pointer Lock captures raw movement, clicks, and scroll wheel. Press <strong>Esc</strong> to unlock.</div>
+          <div class="pad-sub">Tip: With <strong>CapsLock &rarr; Cmd</strong> enabled (or sticky Cmd below), press <strong>CapsLock + Space</strong> to trigger remote <strong>Cmd + Space</strong>.</div>
+        </div>
+        <div class="active-keys" id="activeKeys">Active keys: none</div>
+      </div>
+
+      <div class="mouse-btns">
+        <button class="btn" id="btnLeft">Left Click</button>
+        <button class="btn" id="btnMiddle">Middle</button>
+        <button class="btn" id="btnRight">Right Click</button>
+        <button class="btn" id="btnScrollUp">Scroll Up</button>
+        <button class="btn" id="btnScrollDown">Scroll Down</button>
+      </div>
+    </section>
+
+    <section class="card controls-section">
+      <div class="group">
+        <h3>Sticky Modifiers <span class="hint">(click to arm for next key; double-click to lock)</span></h3>
+        <div class="btn-row" id="stickyRow">
+          <button class="btn mod-btn" data-mod="1">Ctrl</button>
+          <button class="btn mod-btn" data-mod="2">Shift</button>
+          <button class="btn mod-btn" data-mod="4">Alt / Opt</button>
+          <button class="btn mod-btn" data-mod="8">Cmd / Win</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>App Switcher <span class="hint">(holds Cmd/Alt after Tab until you click)</span></h3>
+        <div class="btn-row" id="switcherRow">
+          <button class="btn switch-btn" data-switch-mod="8">Cmd + Tab (Hold)</button>
+          <button class="btn switch-btn" data-switch-mod="4">Alt + Tab (Hold)</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>Quick Combos &amp; OS Shortcuts</h3>
+        <div class="btn-row" id="macroRow">
+          <button class="btn macro-btn" data-mod="8" data-keys="44">Cmd + Space</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="43">Cmd + Tab</button>
+          <button class="btn macro-btn" data-mod="4" data-keys="43">Alt + Tab</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="6">Cmd + C</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="25">Cmd + V</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="29">Cmd + Z</button>
+          <button class="btn macro-btn" data-mod="5" data-keys="76">Ctrl + Alt + Del</button>
+          <button class="btn macro-btn" data-mod="0" data-keys="41">Esc</button>
+          <button class="btn macro-btn" data-mod="0" data-keys="61">F4</button>
+          <button class="btn macro-btn" data-mod="0" data-keys="62">F5</button>
+        </div>
+      </div>
+
+      <div class="group type-group">
+        <div class="group-head">
+          <h3>Type Text <span class="hint">(spaces, tabs &amp; newlines preserved; Cmd/Ctrl + Enter to send)</span></h3>
+          <span class="hint" id="typeStats">0 chars</span>
+        </div>
+        <textarea
+          id="typeInput"
+          class="code-box"
+          rows="8"
+          spellcheck="false"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          placeholder="Type or paste text / code here (spaces, tabs, and newlines are sent as keystrokes)..."
+        ></textarea>
+        <div class="type-actions">
+          <button id="typeSendBtn" class="btn primary" type="button">Send Text</button>
+          <button id="typeStopBtn" class="btn danger" type="button" hidden>Stop</button>
+          <button id="typeCopyBtn" class="btn" type="button">Copy</button>
+          <button id="typeClearBtn" class="btn" type="button">Clear</button>
+        </div>
+      </div>
+
+      <div class="group badge-url-box">
+        <h3>Waveshare Badge Server URL</h3>
+        <div class="type-row">
+          <input id="badgeUrlOut" type="text" readonly />
+          <button id="copyUrlBtn" class="btn">Copy</button>
+        </div>
+        <p class="hint">Enter this URL in the badge's <strong>Super Mouse &rarr; Server</strong> button (or set <code>BADGE_SUPER_MOUSE_URL</code> in <code>main/secrets.h</code>).</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

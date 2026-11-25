@@ -10,7 +10,7 @@ ESP-IDF 5.5+ / LVGL 9.5.0 C firmware for the Waveshare ESP32-S3-Touch-AMOLED-1.7
 - `main/ble/` — Firmware-only BLE HID peripheral (`hid_mouse.c`, `time_svc.c`, vendored `esp_hid_gap.*`).
 - `main/assets/` — Generated LVGL C/H arrays (icons + planet textures). Do not hand-edit.
 - `sim/` — Desktop simulator (`build.py`, `main_sim.c`, `port_sim.c`, `server.py`).
-- `super-mouse/` — Standalone gitignored sub-repo: Node.js/TypeScript WebSocket relay + web controller for `app_super_mouse.c`.
+- `super-mouse/` — Node.js/TypeScript WebSocket relay + web controller for `app_super_mouse.c`.
 - `tools/` — Regression checks (`regress.sh`, `sim-*.py`), asset baking (`mkassets.py`), `sync_cmake.py`.
 - `docs/` — GitHub Pages site, WebSerial flasher (`docs/flash/`), setup guide (`docs/SETUP.md`).
 
@@ -52,7 +52,7 @@ mkdir -p build/config && printf '{"LV_USE_FREETYPE":false,"LV_USE_LIBJPEG_TURBO"
 source ~/.espressif/tools/activate_idf_v6.0.2.sh
 idf.py -p /dev/cu.usbmodem* flash monitor   # /dev/ttyACM0 on Linux, COMx on Windows
 
-# Super Mouse backend + web UI (sub-repo):
+# Super Mouse backend + web UI:
 cd super-mouse && npm install && npm run build && npm start
 
 # Check permanent internal RAM (.bss must stay < 12 KB) & device logs (unverified locally):

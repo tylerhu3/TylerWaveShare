@@ -34,5 +34,7 @@ docs/flash/manifest.json
 .DS_Store
 out/
 
-# Standalone Super Mouse backend/frontend sub-repo
-super-mouse/
+# Super Mouse backend/frontend build output and dependencies
+super-mouse/node_modules/
+super-mouse/dist/
+super-mouse/*.log
