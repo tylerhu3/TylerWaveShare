@@ -530,31 +530,15 @@ bool usb_msc_active(void) { return s_usb_on; }
 bool usb_msc_mounted(void) { return s_usb_on && ++s_usb_ticks > 4; }
 bool usb_msc_ejected(void) { return s_usb_ej; }
 
-/* ── Super Mouse (simulator stub) ─────────────────────────────── */
+/* ── Super Mouse (simulator stub) ─────────────────────────────
+ * No USB serial here: the "web app" goes live 1.2 s after start. */
 static sm_state_t s_sm_state = SM_OFF;
-static sm_out_t s_sm_out = SM_OUT_BLE;
-static bool s_sm_usb_ever;
-static uint32_t s_sm_usb_t0;
 static uint32_t s_sm_t0;
-static uint32_t s_sm_rx;
-static char s_sm_url[128] = "192.168.1.100:8765";
-static char s_sm_last[32] = "idle";
 
 void port_sm_start(void) {
-  if (!s_sm_url[0]) {
-    s_sm_state = SM_NO_URL;
-    return;
-  }
-  s_sm_state = SM_WIFI_CONNECTING;
+  s_sm_state = SM_WAITING;
   s_sm_t0 = lv_tick_get();
-  s_sm_rx = 0;
-  snprintf(s_sm_last, sizeof(s_sm_last), "waiting");
-  fprintf(stderr, "[sm] start (%s)\n", s_sm_url);
-}
-
-void port_sm_reconnect(void) {
-  port_sm_stop();
-  port_sm_start();
+  fprintf(stderr, "[sm] start\n");
 }
 
 void port_sm_stop(void) {
@@ -563,62 +547,17 @@ void port_sm_stop(void) {
   fprintf(stderr, "[sm] stop\n");
 }
 
-void port_sm_leave(void) {
-  port_sm_stop();
-  s_sm_out = SM_OUT_BLE;
-  s_sm_usb_ever = false;
-}
-
-sm_out_t port_sm_output_get(void) { return s_sm_out; }
-
-bool port_sm_output_set(sm_out_t mode) {
-  s_sm_out = mode;
-  if (mode == SM_OUT_USB) {
-    s_sm_usb_ever = true;
-    s_sm_usb_t0 = lv_tick_get();
-    snprintf(s_sm_last, sizeof(s_sm_last), "output: USB");
-  } else {
-    snprintf(s_sm_last, sizeof(s_sm_last), "output: BLE");
-  }
-  fprintf(stderr, "[sm] output -> %s\n", mode == SM_OUT_USB ? "USB" : "BLE");
-  return true;
-}
-
-bool port_sm_usb_mounted(void) {
-  return s_sm_out == SM_OUT_USB && (lv_tick_get() - s_sm_usb_t0 > 500);
-}
-
-bool port_sm_usb_used(void) { return s_sm_usb_ever; }
-void port_sm_usb_error(char *out, size_t len) {
-  if (out && len)
-    out[0] = '\0';
-}
-
 void port_sm_release_all(void) { port_hid_release_all(); }
 
 sm_state_t port_sm_state(void) {
-  if (s_sm_state == SM_WIFI_CONNECTING && lv_tick_get() - s_sm_t0 > 600)
-    s_sm_state = SM_WS_CONNECTING;
-  if (s_sm_state == SM_WS_CONNECTING && lv_tick_get() - s_sm_t0 > 1200) {
-    s_sm_state = SM_CONNECTED;
-    snprintf(s_sm_last, sizeof(s_sm_last), "ready (sim)");
-  }
+  if (s_sm_state == SM_WAITING && lv_tick_get() - s_sm_t0 > 1200)
+    s_sm_state = SM_LIVE;
   return s_sm_state;
 }
 
-uint32_t port_sm_rx_count(void) { return s_sm_rx; }
+uint32_t port_sm_rx_count(void) { return 0; }
 
 void port_sm_last_event(char *out, size_t len) {
   if (out && len)
-    snprintf(out, len, "%s", s_sm_last);
-}
-
-void port_sm_url_get(char *out, size_t len) {
-  if (out && len)
-    snprintf(out, len, "%s", s_sm_url);
-}
-
-void port_sm_url_set(const char *url) {
-  snprintf(s_sm_url, sizeof(s_sm_url), "%s", url ? url : "");
-  fprintf(stderr, "[sm] url set: %s\n", s_sm_url);
+    snprintf(out, len, "%s", s_sm_state == SM_LIVE ? "live (sim)" : "waiting");
 }

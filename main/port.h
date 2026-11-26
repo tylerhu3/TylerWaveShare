@@ -307,34 +307,19 @@ void port_perf_hold(bool on);
 /* The background loop. In the simulator this does nothing and the caller drives it. */
 void port_task_start(const char *name, void (*fn)(void *), void *arg, int stack);
 
-/* ── Super Mouse (Wi-Fi WebSocket -> BLE or USB HID bridge) ─── */
+/* ── Super Mouse (USB-serial source -> BLE HID target) ─────────
+ * The computer on the USB cable runs the web app, which writes HID frames to
+ * the badge's USB-Serial/JTAG port. The badge sends them to its BLE host. */
 typedef enum {
     SM_OFF = 0,
-    SM_WIFI_CONNECTING,
-    SM_WS_CONNECTING,
-    SM_CONNECTED,
-    SM_NO_URL,
-    SM_NO_WIFI,
+    SM_WAITING,   /* no frames from the web app in the last few seconds */
+    SM_LIVE,      /* web app heartbeat or frames arriving */
     SM_ERR,
 } sm_state_t;
 
-typedef enum {
-    SM_OUT_BLE = 0,
-    SM_OUT_USB,
-} sm_out_t;
-
 void       port_sm_start(void);
-void       port_sm_reconnect(void);
 void       port_sm_stop(void);
-void       port_sm_leave(void);       /* app exit: restores USB-Serial/JTAG if USB HID was used */
 sm_state_t port_sm_state(void);
 uint32_t   port_sm_rx_count(void);
 void       port_sm_last_event(char *out, size_t len);
-void       port_sm_url_get(char *out, size_t len);
-void       port_sm_url_set(const char *url);
-sm_out_t   port_sm_output_get(void);
-bool       port_sm_output_set(sm_out_t mode);
-bool       port_sm_usb_mounted(void);
-bool       port_sm_usb_used(void);
-void       port_sm_usb_error(char *out, size_t len);
 void       port_sm_release_all(void);

@@ -10,9 +10,8 @@ idf_component_register(
         port_esp.c
         rec_store.c
         splash.c
-        super_mouse_net.c
+        super_mouse_usb.c
         usb_export.c
-        usb_hid.c
         usb_msc.c
         apps/app_alarm.c
         apps/app_calc.c

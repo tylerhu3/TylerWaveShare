@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0d1017" />
-  <title>Super Mouse — Remote BLE HID Controller</title>
+  <title>Super Mouse — USB to Bluetooth HID Controller</title>
   <link rel="icon" type="image/svg+xml" href="/icon.svg" />
   <link rel="apple-touch-icon" href="/icon.svg" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -21,19 +21,17 @@
   <header class="topbar">
     <div class="brand">
       <img class="brand-icon" src="/icon.svg" alt="" width="28" height="28" />
-      <span class="logo-dot" id="wsDot"></span>
+      <span class="logo-dot" id="linkDot"></span>
       <h1>Super Mouse</h1>
     </div>
     <div class="status-pills">
-      <span class="pill" id="badgePill">Badge: offline</span>
+      <span class="pill" id="usbPill">USB: --</span>
+      <span class="pill" id="badgePill">Badge: --</span>
       <span class="pill" id="blePill">BLE: --</span>
       <span class="pill" id="battPill">Batt: --</span>
-      <span class="pill" id="rttPill">RTT: --</span>
     </div>
     <div class="conn-controls">
-      <input id="roomInput" type="text" value="badge1" placeholder="room" aria-label="Room ID" />
-      <input id="tokenInput" type="password" placeholder="token (optional)" aria-label="Auth Token" />
-      <button id="connectBtn" class="btn primary">Connect</button>
+      <button id="connectBtn" class="btn primary">Connect Badge (USB)</button>
       <button id="releaseBtn" class="btn danger">Release All</button>
       <button id="themeToggleBtn" class="btn" type="button" aria-label="Toggle light or dark theme">Theme: Dark</button>
     </div>
@@ -127,12 +125,9 @@
       </div>
 
       <div class="group badge-url-box">
-        <h3>Waveshare Badge Server URL</h3>
-        <div class="type-row">
-          <input id="badgeUrlOut" type="text" readonly />
-          <button id="copyUrlBtn" class="btn">Copy</button>
-        </div>
-        <p class="hint">Enter this URL in the badge's <strong>Super Mouse &rarr; Server</strong> button (or set <code>BADGE_SUPER_MOUSE_URL</code> in <code>main/secrets.h</code>).</p>
+        <h3>How it connects</h3>
+        <p class="hint">Plug the badge into <strong>this computer</strong> with USB, open <strong>Super Mouse</strong> on the badge, then click <strong>Connect Badge (USB)</strong> and pick the <code>USB JTAG/serial debug unit</code> port. The badge sends everything to its <strong>Bluetooth</strong> host (tap the target pill on the badge to switch hosts).</p>
+        <p class="hint" id="serialHint">Needs Chrome or Edge (WebSerial). Close <code>idf.py monitor</code> first: only one app can hold the port.</p>
       </div>
     </section>
   </main>

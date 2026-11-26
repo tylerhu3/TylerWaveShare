@@ -22,8 +22,3 @@
 #define BADGE_WIFI_PASS2 ""
 #define BADGE_WIFI_SSID3 ""
 #define BADGE_WIFI_PASS3 ""
-
-/* Optional default WebSocket URL for Super Mouse (e.g.
- * "ws://192.168.1.50:8765/ws/device?room=badge1"). Leave empty to keep whatever
- * was configured on the badge. */
-#define BADGE_SUPER_MOUSE_URL "ws://192.168.2.1:8765/ws/device?room=badge1"

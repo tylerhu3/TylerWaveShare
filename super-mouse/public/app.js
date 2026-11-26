@@ -10,16 +10,17 @@ const OP_MOUSE = 0x01;
 const OP_KBD = 0x02;
 const OP_MACRO = 0x03;
 const OP_RELEASE = 0x04;
+const OP_HEARTBEAT = 0x05;
+const SYNC = 0xA5; // every serial frame starts with this byte
+const BADGE_LIVE_MS = 3000; // badge prints an @SM status line every second
 
 const $ = (id) => document.getElementById(id);
 
-const wsDot = $("wsDot");
+const linkDot = $("linkDot");
 const badgePill = $("badgePill");
 const blePill = $("blePill");
 const battPill = $("battPill");
-const rttPill = $("rttPill");
-const roomInput = $("roomInput");
-const tokenInput = $("tokenInput");
+const usbPill = $("usbPill");
 const connectBtn = $("connectBtn");
 const releaseBtn = $("releaseBtn");
 const trackpad = $("trackpad");
@@ -35,25 +36,31 @@ const typeCopyBtn = $("typeCopyBtn");
 const typeClearBtn = $("typeClearBtn");
 const typeStats = $("typeStats");
 const themeToggleBtn = $("themeToggleBtn");
-const badgeUrlOut = $("badgeUrlOut");
-const copyUrlBtn = $("copyUrlBtn");
+const serialHint = $("serialHint");
 
 const THEME_STORAGE_KEY = "super-mouse-theme";
 let typeSending = false;
 let typeSendAbort = false;
 
-let ws = null;
-let serverInfo = null;
-let pingTimer = null;
+// USB serial link to the badge (WebSerial)
+let port = null;
+let writer = null;
+let pendingWrites = 0;
+let heartbeatTimer = null;
+let badgeTimer = null;
+let lastStatusMs = 0;
+let reading = false;
+let activeReader = null;
+let readDone = null;
 
-// Mouse state (leading-edge throttled: 0 ms initial wait, synced to BLE interval or 125 Hz USB)
+// Mouse state (leading-edge throttled, paced to the BLE connection interval)
 let mouseButtons = 0;
 let accDx = 0;
 let accDy = 0;
 let accWheel = 0;
 let mouseFlushTimer = null;
 let lastMouseSendMs = 0;
-let mouseIntervalMs = 15; // 8 ms in USB mode, 15 ms in BLE mode
+const mouseIntervalMs = 15;
 let draggingFallback = false;
 let capturedMouseDown = false;
 let lastFallbackX = 0;
@@ -90,9 +97,33 @@ function effectiveMods() {
   return m;
 }
 
+function linkOpen() {
+  return writer !== null;
+}
+
+function badgeLive() {
+  return linkOpen() && performance.now() - lastStatusMs < BADGE_LIVE_MS;
+}
+
+// Frames written while the badge app is closed would sit in the USB pipe and
+// replay later, so input is only sent while the badge is reporting status.
+function writeFrame(arr, force = false) {
+  if (!writer) return false;
+  if (!force && !badgeLive()) return false;
+  const src = arr instanceof ArrayBuffer ? new Uint8Array(arr) : arr;
+  const out = new Uint8Array(src.length + 1);
+  out[0] = SYNC;
+  out.set(src, 1);
+  pendingWrites += 1;
+  writer.write(out).then(
+    () => { pendingWrites -= 1; },
+    () => { pendingWrites -= 1; },
+  );
+  return true;
+}
+
 function sendBin(arr) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(arr);
+  writeFrame(arr);
 }
 
 function sendMouse(buttons, dx, dy, wheel) {
@@ -114,8 +145,8 @@ function flushMouse(force = false) {
   const dy = Math.round(accDy);
   const wh = Math.round(accWheel);
   if (!force && dx === 0 && dy === 0 && wh === 0) return;
-  if (!force && ws && ws.bufferedAmount > 64) {
-    // Keep coalescing while socket drains instead of piling up stale frames
+  if (!force && pendingWrites > 2) {
+    // Keep coalescing while USB drains instead of piling up stale frames
     mouseFlushTimer = setTimeout(() => flushMouse(false), mouseIntervalMs);
     return;
   }
@@ -126,9 +157,9 @@ function flushMouse(force = false) {
 }
 
 function scheduleMouseFlush() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!badgeLive()) return;
   const elapsed = performance.now() - lastMouseSendMs;
-  if (elapsed >= mouseIntervalMs && ws.bufferedAmount <= 64) {
+  if (elapsed >= mouseIntervalMs && pendingWrites <= 2) {
     flushMouse(false);
   } else if (!mouseFlushTimer) {
     const wait = Math.max(1, Math.ceil(mouseIntervalMs - elapsed));
@@ -230,83 +261,142 @@ function consumeOneShotSticky() {
   if (changed) renderStickyButtons();
 }
 
-function updateBadgeUrlPreview() {
-  const room = roomInput.value.trim() || "badge1";
-  const token = tokenInput.value.trim();
-  const baseHost = serverInfo?.lanIps?.[0]
-    ? `${serverInfo.lanIps[0]}:${serverInfo.port}`
-    : location.host;
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  if (scheme === "ws" && room === "badge1" && !token) {
-    badgeUrlOut.value = baseHost;
-  } else {
-    const tokQ = token ? `&token=${encodeURIComponent(token)}` : "";
-    badgeUrlOut.value = `${scheme}://${baseHost}/ws/device?room=${encodeURIComponent(room)}${tokQ}`;
-  }
-}
-
-function connect() {
-  if (ws) {
-    ws.close();
-    ws = null;
-  }
-  const room = encodeURIComponent(roomInput.value.trim() || "badge1");
-  const token = tokenInput.value.trim();
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const tokQ = token ? `&token=${encodeURIComponent(token)}` : "";
-  const url = `${scheme}://${location.host}/ws/client?room=${room}${tokQ}`;
-
-  ws = new WebSocket(url);
-  ws.binaryType = "arraybuffer";
-
-  ws.onopen = () => {
-    wsDot.classList.add("ok");
-    connectBtn.textContent = "Reconnect";
-    if (pingTimer) clearInterval(pingTimer);
-    pingTimer = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping", t: Date.now() }));
-      }
-    }, 3000);
-  };
-
-  ws.onclose = () => {
-    wsDot.classList.remove("ok");
-    badgePill.textContent = "Badge: offline";
+function renderLink() {
+  const open = linkOpen();
+  const live = badgeLive();
+  linkDot.classList.toggle("ok", live);
+  connectBtn.textContent = open ? "Disconnect" : "Connect Badge (USB)";
+  usbPill.textContent = open ? "USB: connected" : "USB: --";
+  usbPill.className = open ? "pill ok" : "pill";
+  if (!open) {
+    badgePill.textContent = "Badge: --";
     badgePill.className = "pill";
     blePill.textContent = "BLE: --";
     blePill.className = "pill";
-    if (mouseFlushTimer) { clearTimeout(mouseFlushTimer); mouseFlushTimer = null; }
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-  };
+  } else if (!live) {
+    badgePill.textContent = "Badge: open Super Mouse";
+    badgePill.className = "pill warn";
+    blePill.textContent = "BLE: --";
+    blePill.className = "pill";
+  }
+}
 
-  ws.onmessage = (ev) => {
-    if (typeof ev.data !== "string") return;
+function handleStatusLine(line) {
+  // Console lines share the port; only "@SM {json}" lines are ours.
+  const at = line.indexOf("@SM ");
+  if (at === -1) return;
+  let msg;
+  try {
+    msg = JSON.parse(line.slice(at + 4));
+  } catch {
+    return;
+  }
+  const wasLive = badgeLive();
+  lastStatusMs = performance.now();
+  badgePill.textContent = "Badge: Super Mouse";
+  badgePill.className = "pill ok";
+  blePill.textContent = msg.ble ? `BLE: ${msg.peer || "connected"}` : "BLE: advertising";
+  blePill.className = msg.ble ? "pill ok" : "pill warn";
+  if (typeof msg.batt === "number" && msg.batt >= 0) {
+    battPill.textContent = `Batt: ${msg.batt}%`;
+  }
+  if (!wasLive) renderLink();
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buf = "";
+  reading = true;
+  while (port && port.readable && reading) {
+    const reader = port.readable.getReader();
+    activeReader = reader;
     try {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "device") {
-        badgePill.textContent = msg.online ? "Badge: online" : "Badge: offline";
-        badgePill.className = msg.online ? "pill ok" : "pill warn";
-      } else if (msg.type === "status") {
-        badgePill.textContent = "Badge: online";
-        badgePill.className = "pill ok";
-        const isUsb = msg.output === "usb";
-        mouseIntervalMs = isUsb ? 8 : 15;
-        blePill.textContent = isUsb
-          ? (msg.bleConnected ? "USB: connected" : "USB: waiting")
-          : (msg.bleConnected ? `BLE: ${msg.peer || "connected"}` : "BLE: advertising");
-        blePill.className = msg.bleConnected ? "pill ok" : "pill warn";
-        if (typeof msg.battery === "number" && msg.battery >= 0) {
-          battPill.textContent = `Batt: ${msg.battery}%`;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          handleStatusLine(buf.slice(0, nl));
+          buf = buf.slice(nl + 1);
         }
-      } else if (msg.type === "pong" && typeof msg.t === "number") {
-        const rtt = Date.now() - msg.t;
-        rttPill.textContent = `RTT: ${rtt} ms`;
+        if (buf.length > 4096) buf = buf.slice(-512);
       }
     } catch {
-      // ignore non-JSON
+      break; // device lost (unplugged or reset)
+    } finally {
+      activeReader = null;
+      reader.releaseLock();
     }
-  };
+  }
+  reading = false;
+  if (port) disconnect(false, true);
+}
+
+async function connect() {
+  if (!("serial" in navigator)) {
+    serialHint.textContent = "This browser has no WebSerial. Use Chrome or Edge on http://localhost.";
+    return;
+  }
+  try {
+    // 0x303A:0x1001 is the ESP32-S3 USB-Serial/JTAG port the badge exposes.
+    const ports = await navigator.serial.getPorts();
+    port = ports.find((p) => p.getInfo().usbVendorId === 0x303a) ||
+      await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
+    await port.open({ baudRate: 115200 });
+  } catch (err) {
+    port = null;
+    if (err && err.name !== "NotFoundError") {
+      serialHint.textContent = `Could not open the badge: ${err.message}. Close idf.py monitor or other serial apps.`;
+    }
+    renderLink();
+    return;
+  }
+  writer = port.writable.getWriter();
+  pendingWrites = 0;
+  lastStatusMs = 0;
+  serialHint.textContent = "Connected. Open Super Mouse on the badge.";
+  readDone = readLoop();
+  // Heartbeat keeps the badge's "web app live" state; skip it while USB is
+  // backed up so heartbeats never queue behind each other.
+  heartbeatTimer = setInterval(() => {
+    if (pendingWrites === 0) writeFrame(new Uint8Array([OP_HEARTBEAT]), true);
+  }, 1000);
+  badgeTimer = setInterval(renderLink, 1000);
+  renderLink();
+}
+
+async function disconnect(sendRelease = true, fromReader = false) {
+  if (sendRelease && badgeLive()) releaseAll();
+  clearInterval(heartbeatTimer);
+  clearInterval(badgeTimer);
+  heartbeatTimer = badgeTimer = null;
+  if (mouseFlushTimer) { clearTimeout(mouseFlushTimer); mouseFlushTimer = null; }
+  const p = port;
+  const w = writer;
+  port = null;
+  writer = null;
+  reading = false;
+  lastStatusMs = 0;
+  if (w) {
+    // close() waits for queued frames; give the release frame a moment, then
+    // abort in case the badge is not draining the pipe.
+    await Promise.race([w.close(), new Promise((r) => setTimeout(r, 300))]).catch(() => {});
+    await w.abort().catch(() => {});
+    try { w.releaseLock(); } catch {}
+  }
+  if (activeReader) await activeReader.cancel().catch(() => {});
+  if (!fromReader && readDone) await readDone;
+  readDone = null;
+  try { if (p) await p.close(); } catch {}
+  serialHint.textContent = "Disconnected.";
+  renderLink();
+}
+
+if ("serial" in navigator) {
+  navigator.serial.addEventListener("disconnect", (e) => {
+    if (e.target === port) disconnect(false);
+  });
 }
 
 // ── Pointer Lock & Mouse Handling ───────────────────────────────────────────
@@ -623,27 +713,17 @@ initTheme();
 updateTypeStats();
 
 connectBtn.addEventListener("click", () => {
-  updateBadgeUrlPreview();
-  connect();
+  if (linkOpen()) disconnect();
+  else connect();
 });
 releaseBtn.addEventListener("click", releaseAll);
-roomInput.addEventListener("input", updateBadgeUrlPreview);
-tokenInput.addEventListener("input", updateBadgeUrlPreview);
-copyUrlBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(badgeUrlOut.value);
-  copyUrlBtn.textContent = "Copied";
-  setTimeout(() => { copyUrlBtn.textContent = "Copy"; }, 1200);
-});
 
-// Boot
-fetch("/api/info")
-  .then((r) => r.json())
-  .then((info) => {
-    serverInfo = info;
-    updateBadgeUrlPreview();
-    connect();
-  })
-  .catch(() => {
-    updateBadgeUrlPreview();
-    connect();
+// Reopen a badge this page was already allowed to use, without a prompt.
+renderLink();
+if ("serial" in navigator) {
+  navigator.serial.getPorts().then((ports) => {
+    if (ports.some((p) => p.getInfo().usbVendorId === 0x303a)) connect();
   });
+} else {
+  serialHint.textContent = "This browser has no WebSerial. Use Chrome or Edge on http://localhost.";
+}

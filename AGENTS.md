@@ -4,13 +4,13 @@ ESP-IDF 5.5+ / LVGL 9.5.0 C firmware for the Waveshare ESP32-S3-Touch-AMOLED-1.7
 (466×466 round AMOLED, 32 MB flash, 8 MB octal PSRAM, no RTC), plus a native PC simulator.
 
 ## Architecture & Directory Map
-- `main/` — Firmware core (`main.c`, `launcher.c`, `display.c`, `rec_store.c`, `usb_msc.c`, `super_mouse_net.c`).
+- `main/` — Firmware core (`main.c`, `launcher.c`, `display.c`, `rec_store.c`, `usb_msc.c`, `super_mouse_usb.c`).
 - `main/port.h` — Strict HAL seam. `main/port_esp.c` = hardware; `sim/port_sim.c` = simulator.
 - `main/apps/` — One `.c` per app (`app_*.c`, including `app_super_mouse.c`) + overlays (`keypad.c`, `wifi_setup.c`, `host_pick.c`, `usb_screen.c`, `orb.c`).
 - `main/ble/` — Firmware-only BLE HID peripheral (`hid_mouse.c`, `time_svc.c`, vendored `esp_hid_gap.*`).
 - `main/assets/` — Generated LVGL C/H arrays (icons + planet textures). Do not hand-edit.
 - `sim/` — Desktop simulator (`build.py`, `main_sim.c`, `port_sim.c`, `server.py`).
-- `super-mouse/` — Node.js/TypeScript WebSocket relay + web controller for `app_super_mouse.c`.
+- `super-mouse/` — WebSerial web controller (+ tiny localhost static server) for `app_super_mouse.c`.
 - `tools/` — Regression checks (`regress.sh`, `sim-*.py`), asset baking (`mkassets.py`), `sync_cmake.py`.
 - `docs/` — GitHub Pages site, WebSerial flasher (`docs/flash/`), setup guide (`docs/SETUP.md`).
 
@@ -52,7 +52,7 @@ mkdir -p build/config && printf '{"LV_USE_FREETYPE":false,"LV_USE_LIBJPEG_TURBO"
 source ~/.espressif/tools/activate_idf_v6.0.2.sh
 idf.py -p /dev/cu.usbmodem* flash monitor   # /dev/ttyACM0 on Linux, COMx on Windows
 
-# Super Mouse backend + web UI:
+# Super Mouse web UI (open http://localhost:8765 in Chrome/Edge):
 cd super-mouse && npm install && npm run build && npm start
 
 # Check permanent internal RAM (.bss must stay < 12 KB) & device logs (unverified locally):
@@ -67,8 +67,8 @@ tools/check-run.sh <logfile>
 - **CMake sync:** Never hand-edit `SRCS` in `main/CMakeLists.txt`; run `python3 tools/sync_cmake.py`.
 - **Memory lifecycle:** Always delete the LVGL canvas/object **before** freeing its backing buffer (`port_big_free`). Allocate large buffers dynamically in PSRAM (`port_big_alloc`), never as static arrays (`.bss` budget < 12 KB).
 - **LVGL timers:** Never call `lv_timer_set_period()` inside a timer callback (causes 100% CPU loop). Skip ticks instead.
-- **Radio mutual exclusion & Super Mouse coexistence:** Wi-Fi and BLE share one 2.4 GHz antenna. Check `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)` before `esp_hid_gap_init()`. Simultaneous Wi-Fi + BLE (used only by `app_super_mouse.c` / `super_mouse_net.c`) requires the PSRAM offload & trimmed Wi-Fi/BT buffer flags in `sdkconfig.defaults` (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`, `CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST`, `CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER`, `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4`, AMPDU & Wi-Fi IRAM opts off). Always call `esp_wifi_set_ps(WIFI_PS_MIN_MODEM)` **after** `esp_wifi_start()`, keep `esp_websocket_client` `task_stack <= 3072`, and tear down Wi-Fi cleanly on `leave()`. Live hardware headroom is ~9 KB internal SRAM free.
-- **Super Mouse URL shorthand:** `super_mouse_net.c` (`expand_ws_url`) auto-expands `IP` or `IP:port` into `ws://<ip>:<port>/ws/device?room=badge1` (default port `8765`), while passing full `ws://`/`wss://` URIs with paths through unchanged. See `super-mouse/AGENTS.md` for wire protocol and web UI details.
+- **Radio mutual exclusion:** Wi-Fi and BLE share one 2.4 GHz antenna; no app runs both at once (coexistence adds 100–320 ms gaps, see `super-mouse/LATENCY-LOG.md`). Check `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)` before `esp_hid_gap_init()`.
+- **Super Mouse (USB source → BLE target):** the computer on the USB cable runs the web app, which writes sync-prefixed HID frames to the badge's USB-Serial/JTAG port via WebSerial; `super_mouse_usb.c` polls the USJ RX FIFO with the LL API (no driver install: it would make console writes block when nobody reads) and forwards to BLE HID only. Status goes back as `@SM {json}` console lines. See `super-mouse/AGENTS.md`.
 - **Navigation:** First-level app screens exit via the launcher handle only—never add `ui_back_btn()` on an app's root screen. Full-screen tap targets must ignore drags >= 60 px so swipes do not trigger actions.
 - **Conditional includes:** `orb.c` uses `__has_include` for textures; `touch main/apps/orb.c` after baking a new `orb_tex_*.h` so `sim/build.py` rebuilds it.
 

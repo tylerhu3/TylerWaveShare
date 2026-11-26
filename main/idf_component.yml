@@ -15,5 +15,3 @@ dependencies:
   # callbacks twice and breaks the link.
   espressif/tinyusb:
     version: "~0.15.0"
-  espressif/esp_websocket_client:
-    version: "^1.2.0"
