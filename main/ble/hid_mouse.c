@@ -267,6 +267,27 @@ void ble_hid_task_start_up(void)
     ESP_LOGI(TAG, "pairing complete");
 }
 
+/* A failed send is usually a full Bluedroid queue under a fast report stream,
+ * not a lost link. Treating it as a disconnect left s_connected false while the
+ * host stayed connected, so input froze until the host dropped the link. Only a
+ * run of failures lasting > 1 s counts as a missed DISCONNECT event. */
+static uint16_t s_fail_run;
+static int64_t  s_fail_since;
+
+static void note_send(esp_err_t r)
+{
+    if (r == ESP_OK) { s_fail_run = 0; return; }
+    int64_t now = esp_timer_get_time();
+    if (s_fail_run++ == 0) s_fail_since = now;
+    if (s_fail_run >= 20 && now - s_fail_since > 1000000LL) {
+        ESP_LOGW(TAG, "%u sends failed over 1 s, treating link as lost", (unsigned)s_fail_run);
+        s_fail_run = 0;
+        s_connected = false;
+        snprintf(s_peer, sizeof(s_peer), "advertising");
+        esp_hid_ble_gap_adv_start();
+    }
+}
+
 static void hidd_cb(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
 {
     esp_hidd_event_t event = (esp_hidd_event_t)id;
@@ -286,11 +307,13 @@ static void hidd_cb(void *handler_args, esp_event_base_t base, int32_t id, void 
         break;
     case ESP_HIDD_CONNECT_EVENT:
         s_connected = true;
+        s_fail_run = 0;
         snprintf(s_peer, sizeof(s_peer), "connected");
         ESP_LOGI(TAG, "connected");
         break;
     case ESP_HIDD_DISCONNECT_EVENT:
         s_connected = false;
+        s_fail_run = 0;
         s_peer_addr_ok = false;      /* disconnected, so forget who it was */
         snprintf(s_peer, sizeof(s_peer), "advertising");
         esp_hid_ble_gap_adv_start();
@@ -469,11 +492,7 @@ void port_hid_keyboard_report(uint8_t modifiers, const uint8_t keys[6])
     if (!s_dev || !s_connected) return;
     uint8_t rpt[8] = { modifiers, 0, 0, 0, 0, 0, 0, 0 };
     if (keys) memcpy(&rpt[2], keys, 6);
-    if (esp_hidd_dev_input_set(s_dev, 0, 2, rpt, sizeof(rpt)) != ESP_OK) {
-        s_connected = false;
-        snprintf(s_peer, sizeof(s_peer), "advertising");
-        esp_hid_ble_gap_adv_start();
-    }
+    note_send(esp_hidd_dev_input_set(s_dev, 0, 2, rpt, sizeof(rpt)));
 }
 
 void port_hid_release_all(void)
@@ -538,10 +557,5 @@ void port_hid_mouse(int dx, int dy, unsigned buttons, int wheel)
         (uint8_t)(int8_t)clamp8(dy),
         (uint8_t)(int8_t)clamp8(wheel),
     };
-    if (esp_hidd_dev_input_set(s_dev, 0, 1, rpt, sizeof(rpt)) != ESP_OK) {
-        /* Catch it here even if the event was missed */
-        s_connected = false;
-        snprintf(s_peer, sizeof(s_peer), "advertising");
-        esp_hid_ble_gap_adv_start();
-    }
+    note_send(esp_hidd_dev_input_set(s_dev, 0, 1, rpt, sizeof(rpt)));
 }
