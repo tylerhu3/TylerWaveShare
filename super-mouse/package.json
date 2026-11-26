@@ -6,10 +6,14 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "tsc && node dist/server.js"
+    "dev": "tsc && node dist/server.js",
+    "set-password": "tsc && node dist/set-password.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20.11"
   }
 }

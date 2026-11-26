@@ -26,6 +26,32 @@ npm start
 
 Tap the **target** pill on the badge to switch between paired Bluetooth hosts.
 
+## Remote Access (Cloudflare Tunnel) & Login
+
+Every page except `/login` needs a password. The server still binds to `127.0.0.1`; point the tunnel at it:
+
+```bash
+SM_PASSWORD='a long passphrase' npm start      # or: npm run set-password (stores a scrypt hash in data/auth.json)
+cloudflared tunnel --url http://localhost:8765
+```
+
+With no `SM_PASSWORD` and no `data/auth.json`, the first start generates a password and prints it once.
+
+- **Attempt log:** every sign-in (success, wrong password, blocked, sign-out) is appended to
+  `data/login-attempts.jsonl` with IP (`CF-Connecting-IP`), Cloudflare geo headers, reverse DNS, every request header
+  (cookies redacted), and a browser fingerprint from the login page (timezone, languages, screen, GPU, CPU/RAM, canvas
+  hash, UA client hints, battery). Passwords tried are never stored, only their length. The log is shown on `/login`
+  (and via **Access Log** in the controller header).
+- **Public by default:** anyone who opens `/login` sees the table, including your own sign-ins and IP.
+  `SM_PUBLIC_LOG=0` shows it only after signing in.
+- **City / lat-long:** turn on *Add visitor location headers* (Cloudflare dashboard → Rules → Managed Transforms).
+  Without it you only get `CF-IPCountry`.
+- **Backoff:** 3 free wrong passwords per IP, then a lockout of 30 s that doubles with each further failure (capped at
+  24 h); attempts while locked are rejected without checking the password. Across all IPs, more than 20 failures in an
+  hour starts a global lockout of 1 min doubling up to 1 h (this also blocks you; `SM_GLOBAL_LOCK=0` disables it).
+  Lockouts are rebuilt from the log on restart.
+- Sessions are in memory (`SM_SESSION_HOURS`, default 12) and end when the server restarts.
+
 ## Web UI Features
 - **Pointer Lock Capture:** Click the trackpad to capture raw mouse movement, Left/Right/Middle clicks, scroll wheel (natural/reversed default + **Invert Scroll** toggle), and 6KRO keyboard input. Press `Esc` to unlock.
 - **App Switcher (`Cmd + Tab (Hold)` / `Alt + Tab (Hold)`):** Presses `Cmd+Tab` (or `Alt+Tab`), releases `Tab` after 35 ms, and keeps `Cmd`/`Alt` held until you click inside the captured area (or click **Release All**).

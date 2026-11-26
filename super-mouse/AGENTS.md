@@ -6,7 +6,9 @@ badge's USB-Serial/JTAG port with WebSerial. The badge's paired **Bluetooth HID 
 No Wi-Fi is used.
 
 ## Directory Map
-- `src/server.ts` — Static server for `public/`, bound to `127.0.0.1:8765` (WebSerial needs a secure context; `http://localhost` qualifies).
+- `src/server.ts` — Static server for `public/`, bound to `127.0.0.1:8765` (WebSerial needs a secure context; `http://localhost` qualifies; remote use goes through a Cloudflare Tunnel). Everything but `/login`, `/login.js`, `/style.css`, `/icon.svg` needs a session.
+- `src/auth.ts` — Password login, sessions, per-IP + global exponential backoff, attempt log (`data/login-attempts.jsonl`, gitignored; lockouts are replayed from it on boot). Proxy headers (`CF-Connecting-IP`, `X-Forwarded-For`) are trusted only from a loopback peer. `src/set-password.ts` writes `data/auth.json`.
+- `public/login.html`, `public/login.js` — Login form, browser fingerprint sent with each attempt, attempt-log table (render log values with `textContent` only: they are attacker-controlled).
 - `public/index.html`, `public/style.css` — Control UI (status pills, Pointer Lock trackpad, App Switcher, Sticky Modifiers, Quick Combos, Type Text, connect help).
 - `public/hid-map.js` — DOM `KeyboardEvent.code` and ASCII → USB HID Usage Page `0x07` keycodes + modifier bitmasks.
 - `public/app.js` — WebSerial link (connect/heartbeat/status parsing), mouse delta coalescing (15 ms, BLE interval), 6KRO keyboard state machine, App Switcher (`switcherMod`), Sticky Modifiers, and safety `releaseAll()` hooks.

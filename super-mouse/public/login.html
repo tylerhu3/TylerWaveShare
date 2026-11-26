@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1017" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Super Mouse — Sign in</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <script>
+    try {
+      if (localStorage.getItem("super-mouse-theme") === "light") document.documentElement.dataset.theme = "light";
+    } catch {}
+  </script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="auth-page">
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-icon" src="/icon.svg" alt="" width="28" height="28" />
+      <h1>Super Mouse</h1>
+    </div>
+    <div class="conn-controls" id="signedInControls" hidden>
+      <a class="btn primary" href="/">Open controller</a>
+      <button id="logoutBtn" class="btn danger" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main class="auth-layout">
+    <section class="card auth-card" id="loginCard">
+      <h2>Sign in</h2>
+      <form id="loginForm" autocomplete="on">
+        <input type="text" name="username" autocomplete="username" value="super-mouse" hidden />
+        <label class="auth-field">Password
+          <input id="password" name="password" type="password" autocomplete="current-password" required autofocus />
+        </label>
+        <button id="loginBtn" class="btn primary" type="submit">Sign in</button>
+      </form>
+      <p class="auth-msg" id="loginMsg" role="status"></p>
+      <p class="hint" id="youLine"></p>
+      <p class="hint">Every sign-in attempt is recorded with your IP address, location, browser and device details<span id="publicNote">, and listed publicly below</span>. Repeated wrong passwords lock this address out for exponentially longer periods.</p>
+    </section>
+
+    <section class="card auth-log" id="logCard">
+      <div class="card-head">
+        <h2>Login attempts</h2>
+        <span class="hint" id="logCount"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="attempts">
+          <thead>
+            <tr><th>Time</th><th>Result</th><th>IP</th><th>Location</th><th>Browser / device</th><th>Fingerprint</th><th></th></tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/login.js"></script>
+</body>
+</html>
