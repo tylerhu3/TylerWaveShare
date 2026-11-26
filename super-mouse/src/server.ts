@@ -1,12 +1,13 @@
-// Static host for the Super Mouse web app. The page talks to the badge itself
-// over WebSerial, which browsers only allow in a secure context: http://localhost
-// locally, or https through a Cloudflare Tunnel (cloudflared -> 127.0.0.1:PORT).
+// Host for the Super Mouse web app. This server owns the badge's USB serial
+// port (badge-link.ts) and every signed-in page shares it over /ws, locally or
+// through a Cloudflare Tunnel (cloudflared -> 127.0.0.1:PORT).
 // Everything except the login page needs a session (see auth.ts).
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleAuthRoute, initAuth, isAuthed, PUBLIC_LOG } from "./auth.js";
+import { handleAuthRoute, initAuth, isAuthed, PUBLIC_LOG, sameOrigin } from "./auth.js";
+import { attachBadgeLink } from "./badge-link.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
@@ -80,7 +81,11 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// Browsers always send Origin on a WebSocket upgrade; require it to match so a
+// foreign page cannot drive the badge with a visitor's cookie.
+attachBadgeLink(server, (req) => !!req.headers.origin && sameOrigin(req) && isAuthed(req));
+
 server.listen(PORT, HOST, () => {
-  console.log(`Super Mouse web app: http://localhost:${PORT}  (open in Chrome or Edge)`);
+  console.log(`Super Mouse web app: http://localhost:${PORT}  (badge USB link is shared by every signed-in browser)`);
   console.log(`Login attempts log is ${PUBLIC_LOG ? "PUBLIC on /login (SM_PUBLIC_LOG=0 to hide it until signed in)" : "visible only when signed in"}.`);
 });

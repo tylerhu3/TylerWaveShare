@@ -2,16 +2,17 @@
 
 Vanilla ES-module web app (+ a tiny TypeScript static server) for The Badge's **Super Mouse** app.
 The computer the badge is plugged into over USB is the **source**: the page writes HID frames to the
-badge's USB-Serial/JTAG port with WebSerial. The badge's paired **Bluetooth HID host is the only target**.
+badge's USB-Serial/JTAG port. The **server** owns that port (`serialport`) and every signed-in page shares it over a WebSocket (`/ws`), so one connection on the host works from any tab or remote device. The badge's paired **Bluetooth HID host is the only target**.
 No Wi-Fi is used.
 
 ## Directory Map
-- `src/server.ts` — Static server for `public/`, bound to `127.0.0.1:8765` (WebSerial needs a secure context; `http://localhost` qualifies; remote use goes through a Cloudflare Tunnel). Everything but `/login`, `/login.js`, `/style.css`, `/icon.svg` needs a session.
+- `src/server.ts` — Static server for `public/`, bound to `127.0.0.1:8765` (remote use goes through a Cloudflare Tunnel). Everything but `/login`, `/login.js`, `/style.css`, `/icon.svg` needs a session.
+- `src/badge-link.ts` — The shared badge link: auto-opens the Espressif (`303a`) port, parses `@SM` lines, broadcasts state JSON to all `/ws` clients every second, validates client frames (`FRAME_LEN`), adds the `0xA5` sync, coalesces mouse frames while USB drains, sends the 1 s heartbeat while any client is connected, and sends Release All when a client that pressed something closes. `/ws` upgrades need a session **and** a same-host `Origin`.
 - `src/auth.ts` — Password login, sessions, per-IP + global exponential backoff, attempt log (`data/login-attempts.jsonl`, gitignored; lockouts are replayed from it on boot). Proxy headers (`CF-Connecting-IP`, `X-Forwarded-For`) are trusted only from a loopback peer. `src/set-password.ts` writes `data/auth.json`.
 - `public/login.html`, `public/login.js` — Login form, browser fingerprint sent with each attempt, attempt-log table (render log values with `textContent` only: they are attacker-controlled).
 - `public/index.html`, `public/style.css` — Control UI (status pills, Pointer Lock trackpad, App Switcher, Sticky Modifiers, Quick Combos, Type Text, connect help).
 - `public/hid-map.js` — DOM `KeyboardEvent.code` and ASCII → USB HID Usage Page `0x07` keycodes + modifier bitmasks.
-- `public/app.js` — WebSerial link (connect/heartbeat/status parsing), mouse delta coalescing (15 ms, BLE interval), 6KRO keyboard state machine, App Switcher (`switcherMod`), Sticky Modifiers, and safety `releaseAll()` hooks.
+- `public/app.js` — WebSocket client for the shared link (state rendering, reconnect with backoff, frames sent without the sync byte), mouse delta coalescing (15 ms, BLE interval), 6KRO keyboard state machine, App Switcher (`switcherMod`), Sticky Modifiers, and safety `releaseAll()` hooks.
 
 ## Commands
 ```sh
@@ -40,10 +41,10 @@ Badge → host: one console line per second (and on BLE/live changes), mixed wit
 `@SM {"live":true,"ble":true,"peer":"...","batt":87,"rx":123}`
 
 ## Key Invariants & UX Decisions
-1. **Frames stay in sync:** any opcode/layout change in `public/app.js` MUST match `../main/super_mouse_usb.c` (`frame_len`, `dispatch`).
-2. **No stale replay:** the page only sends input while it has seen an `@SM` line in the last 3 s (`badgeLive()`); otherwise frames would sit in the USB pipe while the badge app is closed and replay later. The badge also drains the RX FIFO on app entry.
-3. **Never leave keys stuck:** `releaseAll()` (`0x04`) fires on `blur`, `visibilitychange`, Pointer Lock exit and Disconnect; the badge releases all on its own when no frame/heartbeat arrives for 3 s.
-4. **One serial owner:** `idf.py monitor` (or any terminal) holding the port blocks the page. Unverified on hardware: whether Chrome opening the port toggles DTR/RTS (the USJ resets the chip on RTS with DTR low). If connecting reboots the badge, set the signals explicitly after `open()`.
+1. **Frames stay in sync:** any opcode/layout change in `public/app.js` MUST match `src/badge-link.ts` (`FRAME_LEN`) and `../main/super_mouse_usb.c` (`frame_len`, `dispatch`).
+2. **No stale replay:** the server drops input unless it has seen an `@SM` line in the last 3 s (`live()` in `src/badge-link.ts`; the page mirrors it with `badgeLive()`); otherwise frames would sit in the USB pipe while the badge app is closed and replay later. The badge also drains the RX FIFO on app entry.
+3. **Never leave keys stuck:** `releaseAll()` (`0x04`) fires on `blur`, `visibilitychange`, Pointer Lock exit and Disconnect, but only from a tab that sent input (`sentInput`) so an idle tab cannot cut off another tab's drag; the server also releases when such a tab's socket closes; the badge releases all on its own when no frame/heartbeat arrives for 3 s.
+4. **One serial owner:** `idf.py monitor` (or any terminal) holding the port blocks the server. Unverified on hardware: whether the server opening the port toggles DTR/RTS (the USJ resets the chip on RTS with DTR low). If connecting reboots the badge, call `port.set({ dtr, rts })` explicitly after `open()` in `src/badge-link.ts`.
 5. **App Switcher (`Cmd+Tab (Hold)` / `Alt+Tab (Hold)`):** `switcherMod` is held after the 35 ms `Tab` tap, survives Click 1 (entering Pointer Lock on `trackpad`), and only releases on `mouseup` after a `mousedown` that started **inside** Pointer Lock (`capturedMouseDown`), or on explicit mouse-button click / `Release All`.
 6. **Scroll direction:** Default wheel mapping is `e.deltaY > 0 ? 1 : -1` (natural/reversed), flipped by the `Invert Scroll` checkbox.
 7. **Smoothness history:** read `LATENCY-LOG.md` before working on cursor smoothness. It covers the Wi-Fi/BLE coexistence gaps that motivated the USB source.

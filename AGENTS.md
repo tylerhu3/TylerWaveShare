@@ -10,7 +10,7 @@ ESP-IDF 5.5+ / LVGL 9.5.0 C firmware for the Waveshare ESP32-S3-Touch-AMOLED-1.7
 - `main/ble/` — Firmware-only BLE HID peripheral (`hid_mouse.c`, `time_svc.c`, vendored `esp_hid_gap.*`).
 - `main/assets/` — Generated LVGL C/H arrays (icons + planet textures). Do not hand-edit.
 - `sim/` — Desktop simulator (`build.py`, `main_sim.c`, `port_sim.c`, `server.py`).
-- `super-mouse/` — WebSerial web controller (+ tiny localhost static server) for `app_super_mouse.c`.
+- `super-mouse/` — Web controller for `app_super_mouse.c`; its Node server owns the badge's USB serial port and shares it with every signed-in browser over a WebSocket.
 - `tools/` — Regression checks (`regress.sh`, `sim-*.py`), asset baking (`mkassets.py`), `sync_cmake.py`.
 - `docs/` — GitHub Pages site, WebSerial flasher (`docs/flash/`), setup guide (`docs/SETUP.md`).
 
@@ -68,7 +68,7 @@ tools/check-run.sh <logfile>
 - **Memory lifecycle:** Always delete the LVGL canvas/object **before** freeing its backing buffer (`port_big_free`). Allocate large buffers dynamically in PSRAM (`port_big_alloc`), never as static arrays (`.bss` budget < 12 KB).
 - **LVGL timers:** Never call `lv_timer_set_period()` inside a timer callback (causes 100% CPU loop). Skip ticks instead.
 - **Radio mutual exclusion:** Wi-Fi and BLE share one 2.4 GHz antenna; no app runs both at once (coexistence adds 100–320 ms gaps, see `super-mouse/LATENCY-LOG.md`). Check `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)` before `esp_hid_gap_init()`.
-- **Super Mouse (USB source → BLE target):** the computer on the USB cable runs the web app, which writes sync-prefixed HID frames to the badge's USB-Serial/JTAG port via WebSerial; `super_mouse_usb.c` polls the USJ RX FIFO with the LL API (no driver install: it would make console writes block when nobody reads) and forwards to BLE HID only. Status goes back as `@SM {json}` console lines. See `super-mouse/AGENTS.md`.
+- **Super Mouse (USB source → BLE target):** the computer on the USB cable runs the Super Mouse server, which owns the badge's USB-Serial/JTAG port and writes sync-prefixed HID frames from any connected browser (WebSocket); `super_mouse_usb.c` polls the USJ RX FIFO with the LL API (no driver install: it would make console writes block when nobody reads) and forwards to BLE HID only. Status goes back as `@SM {json}` console lines. See `super-mouse/AGENTS.md`.
 - **Navigation:** First-level app screens exit via the launcher handle only—never add `ui_back_btn()` on an app's root screen. Full-screen tap targets must ignore drags >= 60 px so swipes do not trigger actions.
 - **Conditional includes:** `orb.c` uses `__has_include` for textures; `touch main/apps/orb.c` after baking a new `orb_tex_*.h` so `sim/build.py` rebuilds it.
 

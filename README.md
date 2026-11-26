@@ -16,7 +16,7 @@ this repo is maintained independently.
 | | |
 |---|---|
 | **Trackpad / Air Mouse** | BLE HID mouse: touchpad, or point with the gyro |
-| **Super Mouse** | USB computer runs a WebSerial page ([`super-mouse/`](super-mouse/)); the badge relays its mouse + keyboard to a BLE host |
+| **Super Mouse** | USB host computer runs a shared web controller ([`super-mouse/`](super-mouse/)); the badge relays its mouse + keyboard to a BLE host |
 | **Keys** | Ring of Excel keys (F1–F12, Esc, Tab, Ctrl+; …) over BLE HID |
 | **Clock** | Clock, timer, stopwatch, alarm (rings with the app closed). Time comes from Wi-Fi NTP |
 | **Meet** | Records to flash (~52 min, 16 kHz ADPCM); export as a read-only USB drive of `.WAV` files |

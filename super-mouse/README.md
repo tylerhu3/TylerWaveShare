@@ -1,12 +1,14 @@
 # Super Mouse — Web Controller
 
 Web controller for **The Badge** Super Mouse app (`main/apps/app_super_mouse.c` + `main/super_mouse_usb.c`).
-Plug the badge into a computer with USB: that computer runs this page and becomes the **source**. The page
-captures mouse movement, clicks, scroll wheel and multi-key (6KRO) keyboard chords and writes them to the
-badge over USB serial (WebSerial). The badge forwards them to its paired **Bluetooth** HID host, the only target.
+Plug the badge into the **host computer** with USB and run this server there. The server owns the badge's USB
+serial port; every signed-in browser (other tabs, other windows, other devices through a Cloudflare Tunnel) shares
+that one link over a WebSocket, so you connect once and use it from anywhere. The page captures mouse movement,
+clicks, scroll wheel and multi-key (6KRO) keyboard chords; the badge forwards them to its paired **Bluetooth** HID
+host, the only target.
 
 ```
-[computer + this page] --USB--> [badge] --BLE HID--> [target: Mac / PC / iPad / phone]
+[any browser] --WebSocket--> [host computer: this server] --USB--> [badge] --BLE HID--> [target]
 ```
 
 Wi-Fi is not used, so the 100–320 ms Wi-Fi/BLE coexistence gaps (see `LATENCY-LOG.md`) are gone.
@@ -21,8 +23,10 @@ npm start
 
 1. Pair the badge with the target over Bluetooth (any app that uses BLE, e.g. Air Mouse, or the badge's host picker).
 2. Plug the badge into this computer with USB and open **Super Mouse** on the badge.
-3. Open `http://localhost:8765` in **Chrome or Edge** (WebSerial), click **Connect Badge (USB)** and pick the
-   `USB JTAG/serial debug unit` port. The badge shows **Web app live**.
+3. Open `http://localhost:8765` in any browser (or your tunnel URL from anywhere). The server finds the badge
+   (Espressif USB vendor `0x303A`) and opens it on its own; the badge shows **Web app live**. **Disconnect Badge**
+   turns the shared link off for everyone until someone clicks **Connect Badge (USB)** (`SM_AUTOCONNECT=0` starts
+   with it off).
 
 Tap the **target** pill on the badge to switch between paired Bluetooth hosts.
 
@@ -62,6 +66,8 @@ With no `SM_PASSWORD` and no `data/auth.json`, the first start generates a passw
 See `AGENTS.md` (frames are prefixed with `0xA5`; the badge answers with `@SM {json}` status lines).
 
 ## Troubleshooting
+- **Several tabs at once:** they all drive the same badge. Each tab only sends **Release All** when it pressed
+  something itself, and the server releases a tab's held keys if that tab disappears.
 - **"Could not open the badge":** another program holds the port. Quit `idf.py monitor`, `screen`, Arduino serial monitor, etc.
 - **Badge pill says "open Super Mouse":** the port is open but the badge app isn't running (or the badge is on another screen).
 - **BLE: advertising:** the badge isn't connected to a Bluetooth host. Tap the target pill on the badge to pick one, or pair it from the host's Bluetooth settings.

@@ -11,9 +11,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.2",
     "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=20.11"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.23.0"
   }
 }

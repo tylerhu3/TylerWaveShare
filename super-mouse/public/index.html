@@ -127,8 +127,8 @@
 
       <div class="group badge-url-box">
         <h3>How it connects</h3>
-        <p class="hint">Plug the badge into <strong>this computer</strong> with USB, open <strong>Super Mouse</strong> on the badge, then click <strong>Connect Badge (USB)</strong> and pick the <code>USB JTAG/serial debug unit</code> port. The badge sends everything to its <strong>Bluetooth</strong> host (tap the target pill on the badge to switch hosts).</p>
-        <p class="hint" id="serialHint">Needs Chrome or Edge (WebSerial). Close <code>idf.py monitor</code> first: only one app can hold the port.</p>
+        <p class="hint">Plug the badge into the <strong>host computer</strong> (the one running the Super Mouse server) with USB and open <strong>Super Mouse</strong> on the badge. The server opens the badge by itself and every signed-in tab or device shares that one link, so there is nothing to pick in the browser. The badge sends everything to its <strong>Bluetooth</strong> host (tap the target pill on the badge to switch hosts).</p>
+        <p class="hint" id="serialHint">Connecting to the Super Mouse server... Close <code>idf.py monitor</code> on the host: only one app can hold the port.</p>
       </div>
     </section>
   </main>

@@ -333,7 +333,7 @@ function readBody(req: http.IncomingMessage, max = 32 * 1024): Promise<string> {
 }
 
 // Blocks cross-site form posts; SameSite=Strict covers the session cookie itself.
-function sameOrigin(req: http.IncomingMessage): boolean {
+export function sameOrigin(req: http.IncomingMessage): boolean {
   const origin = first(req.headers.origin);
   if (!origin) return true;
   try { return new URL(origin).host === req.headers.host; } catch { return false; }

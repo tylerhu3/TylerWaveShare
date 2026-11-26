@@ -10,9 +10,9 @@ const OP_MOUSE = 0x01;
 const OP_KBD = 0x02;
 const OP_MACRO = 0x03;
 const OP_RELEASE = 0x04;
-const OP_HEARTBEAT = 0x05;
-const SYNC = 0xA5; // every serial frame starts with this byte
-const BADGE_LIVE_MS = 3000; // badge prints an @SM status line every second
+// The server owns the USB serial port; this page shares it over /ws with every
+// other signed-in tab. Frames go out without the 0xA5 sync byte (server adds it).
+const WS_BACKLOG = 64; // bytes queued on the socket before mouse frames coalesce
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,16 +42,11 @@ const THEME_STORAGE_KEY = "super-mouse-theme";
 let typeSending = false;
 let typeSendAbort = false;
 
-// USB serial link to the badge (WebSerial)
-let port = null;
-let writer = null;
-let pendingWrites = 0;
-let heartbeatTimer = null;
-let badgeTimer = null;
-let lastStatusMs = 0;
-let reading = false;
-let activeReader = null;
-let readDone = null;
+// Shared link: WebSocket to the server, which holds the badge's USB port
+let ws = null;
+let wsRetryMs = 500;
+let link = { usb: false, live: false, ble: false, peer: "", batt: -1, clients: 0, auto: true, error: "", path: "" };
+let sentInput = false; // this tab sent input since its last release
 
 // Mouse state (leading-edge throttled, paced to the BLE connection interval)
 let mouseButtons = 0;
@@ -97,33 +92,30 @@ function effectiveMods() {
   return m;
 }
 
+function wsOpen() {
+  return ws !== null && ws.readyState === WebSocket.OPEN;
+}
+
 function linkOpen() {
-  return writer !== null;
+  return wsOpen() && link.usb;
 }
 
 function badgeLive() {
-  return linkOpen() && performance.now() - lastStatusMs < BADGE_LIVE_MS;
+  return linkOpen() && link.live;
 }
 
-// Frames written while the badge app is closed would sit in the USB pipe and
-// replay later, so input is only sent while the badge is reporting status.
-function writeFrame(arr, force = false) {
-  if (!writer) return false;
-  if (!force && !badgeLive()) return false;
-  const src = arr instanceof ArrayBuffer ? new Uint8Array(arr) : arr;
-  const out = new Uint8Array(src.length + 1);
-  out[0] = SYNC;
-  out.set(src, 1);
-  pendingWrites += 1;
-  writer.write(out).then(
-    () => { pendingWrites -= 1; },
-    () => { pendingWrites -= 1; },
-  );
-  return true;
+function wsBacklogged() {
+  return ws !== null && ws.bufferedAmount > WS_BACKLOG;
 }
 
+// The server drops input while the badge is not reporting status (no stale
+// replay); checking here too just saves the round trip.
 function sendBin(arr) {
-  writeFrame(arr);
+  if (!badgeLive()) return;
+  const src = arr instanceof ArrayBuffer ? new Uint8Array(arr) : arr;
+  if (src[0] === OP_RELEASE) sentInput = false;
+  else sentInput = true;
+  ws.send(src.slice());
 }
 
 function sendMouse(buttons, dx, dy, wheel) {
@@ -145,7 +137,7 @@ function flushMouse(force = false) {
   const dy = Math.round(accDy);
   const wh = Math.round(accWheel);
   if (!force && dx === 0 && dy === 0 && wh === 0) return;
-  if (!force && pendingWrites > 2) {
+  if (!force && wsBacklogged()) {
     // Keep coalescing while USB drains instead of piling up stale frames
     mouseFlushTimer = setTimeout(() => flushMouse(false), mouseIntervalMs);
     return;
@@ -159,7 +151,7 @@ function flushMouse(force = false) {
 function scheduleMouseFlush() {
   if (!badgeLive()) return;
   const elapsed = performance.now() - lastMouseSendMs;
-  if (elapsed >= mouseIntervalMs && pendingWrites <= 2) {
+  if (elapsed >= mouseIntervalMs && !wsBacklogged()) {
     flushMouse(false);
   } else if (!mouseFlushTimer) {
     const wait = Math.max(1, Math.ceil(mouseIntervalMs - elapsed));
@@ -190,6 +182,7 @@ function sendMacro(mod, keys, holdMs = 35) {
 
 function releaseAll() {
   typeSendAbort = true;
+  const wasActive = sentInput || switcherMod !== 0;
   physMods = 0;
   switcherMod = 0;
   heldKeys.length = 0;
@@ -203,7 +196,9 @@ function releaseAll() {
   renderStickyButtons();
   renderSwitcherButtons();
   renderActiveKeys(0);
-  sendBin(releaseFrame);
+  // Only a tab that pressed something releases, so blurring an idle window
+  // does not cut off a drag another window is doing.
+  if (wasActive) sendBin(releaseFrame);
 }
 
 function renderSwitcherButtons() {
@@ -262,12 +257,21 @@ function consumeOneShotSticky() {
 }
 
 function renderLink() {
+  const up = wsOpen();
   const open = linkOpen();
   const live = badgeLive();
   linkDot.classList.toggle("ok", live);
-  connectBtn.textContent = open ? "Disconnect" : "Connect Badge (USB)";
-  usbPill.textContent = open ? "USB: connected" : "USB: --";
-  usbPill.className = open ? "pill ok" : "pill";
+  connectBtn.disabled = !up;
+  connectBtn.textContent = open ? "Disconnect Badge" : "Connect Badge (USB)";
+  const others = Math.max(0, link.clients - 1);
+  const share = others ? ` · ${others} other tab${others > 1 ? "s" : ""}` : "";
+  if (!up) {
+    usbPill.textContent = "Server: offline";
+    usbPill.className = "pill warn";
+  } else {
+    usbPill.textContent = open ? `USB: connected${share}` : `USB: --${share}`;
+    usbPill.className = open ? "pill ok" : "pill";
+  }
   if (!open) {
     badgePill.textContent = "Badge: --";
     badgePill.className = "pill";
@@ -278,125 +282,67 @@ function renderLink() {
     badgePill.className = "pill warn";
     blePill.textContent = "BLE: --";
     blePill.className = "pill";
+  } else {
+    badgePill.textContent = "Badge: Super Mouse";
+    badgePill.className = "pill ok";
+    blePill.textContent = link.ble ? `BLE: ${link.peer || "connected"}` : "BLE: advertising";
+    blePill.className = link.ble ? "pill ok" : "pill warn";
   }
+  if (link.batt >= 0) battPill.textContent = `Batt: ${link.batt}%`;
+
+  if (!up) serialHint.textContent = "Reconnecting to the Super Mouse server...";
+  else if (link.error && !open) serialHint.textContent = link.error;
+  else if (!open) serialHint.textContent = link.auto
+    ? "Waiting for the badge on the host computer's USB..."
+    : "Badge link is off. Click Connect Badge (USB).";
+  else if (!live) serialHint.textContent = "Connected. Open Super Mouse on the badge.";
+  else serialHint.textContent = `Connected on the host computer (${link.path}). Shared with every signed-in tab.`;
 }
 
-function handleStatusLine(line) {
-  // Console lines share the port; only "@SM {json}" lines are ours.
-  const at = line.indexOf("@SM ");
-  if (at === -1) return;
-  let msg;
-  try {
-    msg = JSON.parse(line.slice(at + 4));
-  } catch {
-    return;
-  }
-  const wasLive = badgeLive();
-  lastStatusMs = performance.now();
-  badgePill.textContent = "Badge: Super Mouse";
-  badgePill.className = "pill ok";
-  blePill.textContent = msg.ble ? `BLE: ${msg.peer || "connected"}` : "BLE: advertising";
-  blePill.className = msg.ble ? "pill ok" : "pill warn";
-  if (typeof msg.batt === "number" && msg.batt >= 0) {
-    battPill.textContent = `Batt: ${msg.batt}%`;
-  }
-  if (!wasLive) renderLink();
-}
-
-async function readLoop() {
-  const decoder = new TextDecoder();
-  let buf = "";
-  reading = true;
-  while (port && port.readable && reading) {
-    const reader = port.readable.getReader();
-    activeReader = reader;
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          handleStatusLine(buf.slice(0, nl));
-          buf = buf.slice(nl + 1);
-        }
-        if (buf.length > 4096) buf = buf.slice(-512);
-      }
-    } catch {
-      break; // device lost (unplugged or reset)
-    } finally {
-      activeReader = null;
-      reader.releaseLock();
-    }
-  }
-  reading = false;
-  if (port) disconnect(false, true);
-}
-
-async function connect() {
-  if (!("serial" in navigator)) {
-    serialHint.textContent = "This browser has no WebSerial. Use Chrome or Edge on http://localhost.";
-    return;
-  }
-  try {
-    // 0x303A:0x1001 is the ESP32-S3 USB-Serial/JTAG port the badge exposes.
-    const ports = await navigator.serial.getPorts();
-    port = ports.find((p) => p.getInfo().usbVendorId === 0x303a) ||
-      await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
-    await port.open({ baudRate: 115200 });
-  } catch (err) {
-    port = null;
-    if (err && err.name !== "NotFoundError") {
-      serialHint.textContent = `Could not open the badge: ${err.message}. Close idf.py monitor or other serial apps.`;
-    }
+function connectWs() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const sock = new WebSocket(`${proto}//${location.host}/ws`);
+  sock.binaryType = "arraybuffer";
+  ws = sock;
+  sock.addEventListener("open", () => {
+    wsRetryMs = 500;
     renderLink();
-    return;
-  }
-  writer = port.writable.getWriter();
-  pendingWrites = 0;
-  lastStatusMs = 0;
-  serialHint.textContent = "Connected. Open Super Mouse on the badge.";
-  readDone = readLoop();
-  // Heartbeat keeps the badge's "web app live" state; skip it while USB is
-  // backed up so heartbeats never queue behind each other.
-  heartbeatTimer = setInterval(() => {
-    if (pendingWrites === 0) writeFrame(new Uint8Array([OP_HEARTBEAT]), true);
-  }, 1000);
-  badgeTimer = setInterval(renderLink, 1000);
-  renderLink();
-}
-
-async function disconnect(sendRelease = true, fromReader = false) {
-  if (sendRelease && badgeLive()) releaseAll();
-  clearInterval(heartbeatTimer);
-  clearInterval(badgeTimer);
-  heartbeatTimer = badgeTimer = null;
-  if (mouseFlushTimer) { clearTimeout(mouseFlushTimer); mouseFlushTimer = null; }
-  const p = port;
-  const w = writer;
-  port = null;
-  writer = null;
-  reading = false;
-  lastStatusMs = 0;
-  if (w) {
-    // close() waits for queued frames; give the release frame a moment, then
-    // abort in case the badge is not draining the pipe.
-    await Promise.race([w.close(), new Promise((r) => setTimeout(r, 300))]).catch(() => {});
-    await w.abort().catch(() => {});
-    try { w.releaseLock(); } catch {}
-  }
-  if (activeReader) await activeReader.cancel().catch(() => {});
-  if (!fromReader && readDone) await readDone;
-  readDone = null;
-  try { if (p) await p.close(); } catch {}
-  serialHint.textContent = "Disconnected.";
-  renderLink();
-}
-
-if ("serial" in navigator) {
-  navigator.serial.addEventListener("disconnect", (e) => {
-    if (e.target === port) disconnect(false);
   });
+  sock.addEventListener("message", (e) => {
+    if (typeof e.data !== "string") return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type !== "state") return;
+    const wasLive = badgeLive();
+    link = msg;
+    if (wasLive && !badgeLive()) releaseLocalState();
+    renderLink();
+  });
+  sock.addEventListener("close", () => {
+    if (ws !== sock) return;
+    ws = null;
+    link = { ...link, usb: false, live: false };
+    releaseLocalState();
+    renderLink();
+    // 401 on upgrade surfaces as an abnormal close; the page fetch tells us if the session expired.
+    fetch("/", { method: "HEAD", redirect: "manual" }).then((r) => {
+      if (r.type === "opaqueredirect" || r.status === 302 || r.status === 401) location.href = "/login";
+    }).catch(() => {});
+    setTimeout(connectWs, wsRetryMs);
+    wsRetryMs = Math.min(wsRetryMs * 2, 8000);
+  });
+}
+
+// Drop held state locally when the link goes away (the badge/server release on their own).
+function releaseLocalState() {
+  sentInput = false;
+  physMods = 0;
+  switcherMod = 0;
+  heldKeys.length = 0;
+  mouseButtons = 0;
+  accDx = accDy = accWheel = 0;
+  renderSwitcherButtons();
+  renderActiveKeys(effectiveMods());
 }
 
 // ── Pointer Lock & Mouse Handling ───────────────────────────────────────────
@@ -713,17 +659,11 @@ initTheme();
 updateTypeStats();
 
 connectBtn.addEventListener("click", () => {
-  if (linkOpen()) disconnect();
-  else connect();
+  if (!wsOpen()) return;
+  if (linkOpen()) releaseAll();
+  ws.send(JSON.stringify({ cmd: linkOpen() ? "disconnect" : "connect" }));
 });
 releaseBtn.addEventListener("click", releaseAll);
 
-// Reopen a badge this page was already allowed to use, without a prompt.
 renderLink();
-if ("serial" in navigator) {
-  navigator.serial.getPorts().then((ports) => {
-    if (ports.some((p) => p.getInfo().usbVendorId === 0x303a)) connect();
-  });
-} else {
-  serialHint.textContent = "This browser has no WebSerial. Use Chrome or Edge on http://localhost.";
-}
+connectWs();
