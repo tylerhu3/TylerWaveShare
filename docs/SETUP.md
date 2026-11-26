@@ -23,7 +23,7 @@ git**. Those are all you have to bring.
 Most of what was built was checked this way — the water particles, the orb rotation, fonts, game logic.
 
 ```bash
-git clone https://github.com/curisama/The-Badge && cd The-Badge
+git clone https://github.com/tylerhu3/TylerWaveShare && cd TylerWaveShare
 ./tools/setup.sh --sim-only        # fetch LVGL only and build the simulator
 python3 sim/server.py              # then open localhost:8791 in a browser
 ```
