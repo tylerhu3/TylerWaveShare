@@ -53,5 +53,4 @@ idf_component_register(
         assets/app_icon_type.c
         assets/app_icon_water.c
         assets/icon_gear.c
-        assets/panda_gif.c
     INCLUDE_DIRS "." "apps" "ble" "usb")

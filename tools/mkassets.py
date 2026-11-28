@@ -397,9 +397,6 @@ def main():
               "app_icon_cheer", "app_icon_super_mouse", "app_icon_panda",
               "icon_gear"):
         hdr.append(f"extern const lv_image_dsc_t {n};")
-    hdr.append("")
-    hdr.append("extern const uint8_t panda_gif_data[];")
-    hdr.append("extern const uint32_t panda_gif_size;")
     hdr += [""] + defs + [""]
     open(os.path.join(OUT, "assets.h"), "w").write("\n".join(hdr) + "\n")
     print("assets.h written")

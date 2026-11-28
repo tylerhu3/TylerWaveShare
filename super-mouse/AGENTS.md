@@ -7,12 +7,12 @@ No Wi-Fi is used.
 
 ## Directory Map
 - `src/server.ts` — Static server for `public/`, bound to `127.0.0.1:8765` (remote use goes through a Cloudflare Tunnel). Everything but `/login`, `/login.js`, `/style.css`, `/icon.svg` needs a session.
-- `src/badge-link.ts` — The shared badge link: auto-opens the Espressif (`303a`) port, parses `@SM` lines, broadcasts state JSON to all `/ws` clients every second, validates client frames (`FRAME_LEN`), adds the `0xA5` sync, coalesces mouse frames while USB drains, sends the 1 s heartbeat while any client is connected, and sends Release All when a client that pressed something closes. `/ws` upgrades need a session **and** a same-host `Origin`.
+- `src/badge-link.ts` — The shared badge link: auto-opens the Espressif (`303a`) port, parses `@SM` lines, broadcasts state JSON to all `/ws` clients every second (forced every 2 s even when unchanged: it is the pages' liveness signal), validates client frames (`FRAME_LEN`), adds the `0xA5` sync, coalesces mouse frames while USB drains, sends the 1 s heartbeat while any client is connected, and sends Release All when a client that pressed something closes. `/ws` upgrades need a session **and** a same-host `Origin`.
 - `src/auth.ts` — Password login, sessions, per-IP + global exponential backoff, attempt log (`data/login-attempts.jsonl`, gitignored; lockouts are replayed from it on boot). Proxy headers (`CF-Connecting-IP`, `X-Forwarded-For`) are trusted only from a loopback peer. `src/set-password.ts` writes `data/auth.json`.
 - `public/login.html`, `public/login.js` — Login form, browser fingerprint sent with each attempt, attempt-log table (render log values with `textContent` only: they are attacker-controlled).
 - `public/index.html`, `public/style.css` — Control UI (status pills, Pointer Lock trackpad, App Switcher, Sticky Modifiers, Quick Combos, Type Text, connect help).
 - `public/hid-map.js` — DOM `KeyboardEvent.code` and ASCII → USB HID Usage Page `0x07` keycodes + modifier bitmasks.
-- `public/app.js` — WebSocket client for the shared link (state rendering, reconnect with backoff, frames sent without the sync byte), mouse delta coalescing (15 ms, BLE interval), 6KRO keyboard state machine, App Switcher (`switcherMod`), Sticky Modifiers, and safety `releaseAll()` hooks.
+- `public/app.js` — WebSocket client for the shared link (state rendering, reconnect with backoff, stale-socket watchdog that reconnects after 6 s of silence or 3 s of stuck send buffer, frames sent without the sync byte), mouse delta coalescing (15 ms, BLE interval), 6KRO keyboard state machine, App Switcher (`switcherMod`), Sticky Modifiers, and safety `releaseAll()` hooks.
 
 ## Commands
 ```sh

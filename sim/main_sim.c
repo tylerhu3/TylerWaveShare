@@ -451,7 +451,7 @@ static void serve_loop(void)
              * in for the same reason on 09-09). A 8 = settings. */
             static const badge_app_t *const list[] = {
                 &app_mouse, &app_meet, &app_keys, &app_calc, &app_games, &app_clock,
-                &app_water, &app_orb, &app_settings,
+                &app_water, &app_orb, &app_settings, &app_panda, /* A 9 */
             };
             int n = atoi(line + 1);
             if (n >= 0 && n < (int)(sizeof(list) / sizeof(list[0]))) launcher_open(list[n]);

@@ -299,6 +299,14 @@ function renderLink() {
   else serialHint.textContent = `Connected on the host computer (${link.path}). Shared with every signed-in tab.`;
 }
 
+// The server force-sends state every 2 s. A socket that goes quiet longer, or
+// whose send buffer stays full, was dropped silently (idle NAT/tunnel/Wi-Fi
+// power-save) and would otherwise sit dead until the OS TCP timeout.
+const WS_SILENT_MS = 6000;
+const WS_STUCK_MS = 3000;
+let wsLastMsgMs = 0;
+let wsStuckSinceMs = 0;
+
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const sock = new WebSocket(`${proto}//${location.host}/ws`);
@@ -306,9 +314,12 @@ function connectWs() {
   ws = sock;
   sock.addEventListener("open", () => {
     wsRetryMs = 500;
+    wsLastMsgMs = performance.now();
+    wsStuckSinceMs = 0;
     renderLink();
   });
   sock.addEventListener("message", (e) => {
+    wsLastMsgMs = performance.now();
     if (typeof e.data !== "string") return;
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
@@ -318,20 +329,40 @@ function connectWs() {
     if (wasLive && !badgeLive()) releaseLocalState();
     renderLink();
   });
-  sock.addEventListener("close", () => {
-    if (ws !== sock) return;
-    ws = null;
-    link = { ...link, usb: false, live: false };
-    releaseLocalState();
-    renderLink();
-    // 401 on upgrade surfaces as an abnormal close; the page fetch tells us if the session expired.
-    fetch("/", { method: "HEAD", redirect: "manual" }).then((r) => {
-      if (r.type === "opaqueredirect" || r.status === 302 || r.status === 401) location.href = "/login";
-    }).catch(() => {});
-    setTimeout(connectWs, wsRetryMs);
-    wsRetryMs = Math.min(wsRetryMs * 2, 8000);
-  });
+  sock.addEventListener("close", () => linkLost(sock));
 }
+
+function linkLost(sock) {
+  if (ws !== sock) return;
+  ws = null;
+  link = { ...link, usb: false, live: false };
+  releaseLocalState();
+  renderLink();
+  // 401 on upgrade surfaces as an abnormal close; the page fetch tells us if the session expired.
+  fetch("/", { method: "HEAD", redirect: "manual" }).then((r) => {
+    if (r.type === "opaqueredirect" || r.status === 302 || r.status === 401) location.href = "/login";
+  }).catch(() => {});
+  setTimeout(connectWs, wsRetryMs);
+  wsRetryMs = Math.min(wsRetryMs * 2, 8000);
+}
+
+function checkWsStale() {
+  const sock = ws;
+  if (!sock || sock.readyState !== WebSocket.OPEN) return;
+  const now = performance.now();
+  if (sock.bufferedAmount > WS_BACKLOG) {
+    if (!wsStuckSinceMs) wsStuckSinceMs = now;
+  } else {
+    wsStuckSinceMs = 0;
+  }
+  const silent = now - wsLastMsgMs > WS_SILENT_MS;
+  const stuck = wsStuckSinceMs && now - wsStuckSinceMs > WS_STUCK_MS;
+  if (!silent && !stuck) return;
+  console.warn(`[ws] ${silent ? "silent" : "send buffer stuck"}, reconnecting`);
+  linkLost(sock); // detach first so the late close event is ignored
+  sock.close();
+}
+setInterval(checkWsStale, 1000);
 
 // Drop held state locally when the link goes away (the badge/server release on their own).
 function releaseLocalState() {
@@ -487,6 +518,7 @@ window.addEventListener("keyup", (e) => {
 window.addEventListener("blur", releaseAll);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) releaseAll();
+  else checkWsStale(); // coming back after idle is when a dead socket bites
 });
 
 // ── UI Buttons, Sticky Modifiers, Macros & Text Typing ──────────────────────

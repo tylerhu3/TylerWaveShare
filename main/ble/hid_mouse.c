@@ -121,7 +121,6 @@ uint32_t port_hid_passkey(void)
 static volatile uint16_t s_conn_int;
 static bool              s_pm_held;   /* are we holding light sleep off? */
 
-void badge_ble_set_interval(uint16_t units) { s_conn_int = units; }
 
 int port_hid_interval_ms(void)
 {
@@ -234,6 +233,37 @@ bool port_hid_peer_addr(uint8_t out[6])
     return true;
 }
 
+#define FAST_MAX_INT 12                    /* 15 ms in 1.25 ms units */
+#define FAST_RETRY_US (30 * 1000000LL)     /* a host that refuses is asked again at most this often */
+static int64_t s_fast_req_at;
+
+static void request_fast_interval(void)
+{
+    if (!s_peer_addr_ok) return;
+    esp_ble_conn_update_params_t p = {
+        .min_int = 6,      /* 6 x 1.25ms = 7.5ms */
+        .max_int = FAST_MAX_INT,
+        .latency = 0,
+        .timeout = 400,    /* 4 s (in 10 ms units) */
+    };
+    memcpy(p.bda, s_peer_addr, sizeof(esp_bd_addr_t));
+    s_fast_req_at = esp_timer_get_time();
+    esp_err_t r = esp_ble_gap_update_conn_params(&p);
+    ESP_LOGI(TAG, "requested a 7.5-15 ms interval (%s)", r == ESP_OK ? "sent" : "failed");
+}
+
+/* Hosts (macOS/iOS) relax an idle HID link to a longer interval and never
+ * tighten it again on their own, so the cursor stays sluggish after a pause.
+ * Ask again whenever it settles slower than 15 ms. Rate-limited so a host
+ * that insists on its own value does not ping-pong with us. */
+void badge_ble_set_interval(uint16_t units)
+{
+    s_conn_int = units;
+    if (units > FAST_MAX_INT && s_peer_addr_ok &&
+        esp_timer_get_time() - s_fast_req_at > FAST_RETRY_US)
+        request_fast_interval();
+}
+
 void badge_ble_bonded(esp_bd_addr_t addr)
 {
     /* 🚨 Anything that is not the pinned host is dropped on the spot. A
@@ -247,15 +277,7 @@ void badge_ble_bonded(esp_bd_addr_t addr)
     }
     memcpy(s_peer_addr, addr, 6);
     s_peer_addr_ok = true;
-    esp_ble_conn_update_params_t p = {
-        .min_int = 6,      /* 6 x 1.25ms = 7.5ms */
-        .max_int = 12,     /* 15ms */
-        .latency = 0,
-        .timeout = 400,    /* 4 s (in 10 ms units) */
-    };
-    memcpy(p.bda, addr, sizeof(esp_bd_addr_t));
-    esp_err_t r = esp_ble_gap_update_conn_params(&p);
-    ESP_LOGI(TAG, "requested a 7.5-15 ms interval (%s)", r == ESP_OK ? "sent" : "failed");
+    request_fast_interval();
 }
 
 void ble_hid_task_start_up(void)

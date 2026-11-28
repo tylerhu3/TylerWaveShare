@@ -220,9 +220,12 @@ export function attachBadgeLink(server: http.Server, allow: (req: http.IncomingM
 
   // Heartbeat keeps the badge's "web app live" state while anyone is watching;
   // with no clients the badge times out and releases everything on its own.
+  // State is force-sent every 2 s even when unchanged: it is the pages' only
+  // proof that their socket is alive (an idle NAT/tunnel drop is otherwise silent).
+  let tick = 0;
   setInterval(() => {
     if (port && clients.size > 0 && inflight === 0) rawWrite(Buffer.from([OP_HEARTBEAT]));
     if (!port && autoConnect) void openBadge();
-    broadcast();
+    broadcast(++tick % 2 === 0);
   }, 1000);
 }
