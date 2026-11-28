@@ -161,6 +161,13 @@ input:focus, textarea:focus { border-color: var(--accent); }
 
 .pad-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
 .chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.opt-select { display: inline-flex; align-items: center; gap: 6px; }
+.opt-select select {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 6px; font-size: 12px; outline: none; cursor: pointer;
+}
+.opt-select select:focus { border-color: var(--accent); }
 
 .trackpad {
   position: relative;
@@ -174,6 +181,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
   justify-content: center;
   cursor: crosshair;
   user-select: none;
+  touch-action: none;
   outline: none;
 }
 .trackpad.captured {

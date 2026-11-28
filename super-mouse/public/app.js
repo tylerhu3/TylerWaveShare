@@ -1,6 +1,8 @@
 import {
   CODE_TO_HID,
   CODE_TO_MOD,
+  MOD_LCTRL,
+  MOD_RCTRL,
   MOD_LMETA,
   asciiToHid,
   formatModBits,
@@ -29,8 +31,10 @@ const sensSlider = $("sensSlider");
 const sensVal = $("sensVal");
 const invertScroll = $("invertScroll");
 const capsCmd = $("capsCmd");
+const pinchMode = $("pinchMode");
 const typeInput = $("typeInput");
 const typeSendBtn = $("typeSendBtn");
+const typeEnterBtn = $("typeEnterBtn");
 const typeStopBtn = $("typeStopBtn");
 const typeCopyBtn = $("typeCopyBtn");
 const typeClearBtn = $("typeClearBtn");
@@ -39,6 +43,14 @@ const themeToggleBtn = $("themeToggleBtn");
 const serialHint = $("serialHint");
 
 const THEME_STORAGE_KEY = "super-mouse-theme";
+const PINCH_STORAGE_KEY = "super-mouse-pinch-mode";
+const HID_MINUS = 0x2D;
+const HID_EQUAL = 0x2E;
+const PINCH_KEY_STEP = 28;      // normalized deltaY per Cmd +/- tap
+const PINCH_WHEEL_STEP = 6;     // normalized deltaY per Ctrl + Scroll tick
+const PINCH_MACRO_COOLDOWN_MS = 60;
+const PINCH_CTRL_HOLD_MS = 220;
+const PINCH_RESET_MS = 300;
 let typeSending = false;
 let typeSendAbort = false;
 
@@ -84,8 +96,19 @@ const stickyState = new Map([
 // Stays held after tapping Tab until a mouse click (or Release All) is registered.
 let switcherMod = 0;
 
+// Pinch-to-zoom state (temporary Ctrl for Ctrl+Scroll mode + delta accumulator)
+let zoomMod = 0;
+let zoomModTimer = null;
+let pinchAcc = 0;
+let pinchResetTimer = null;
+let lastZoomMacroMs = 0;
+let safariGesture = false;
+let safariGestureScale = 1;
+let safariSawWheel = false;
+let lastTouchPinchDist = 0;
+
 function effectiveMods() {
-  let m = physMods | switcherMod;
+  let m = physMods | switcherMod | zoomMod;
   for (const [bit, st] of stickyState.entries()) {
     if (st > 0) m |= bit;
   }
@@ -180,11 +203,36 @@ function sendMacro(mod, keys, holdMs = 35) {
   sendBin(macroFrame);
 }
 
+function resetPinchAccum() {
+  pinchAcc = 0;
+  if (pinchResetTimer) {
+    clearTimeout(pinchResetTimer);
+    pinchResetTimer = null;
+  }
+}
+
+function clearZoomMod(send = true) {
+  if (zoomModTimer) {
+    clearTimeout(zoomModTimer);
+    zoomModTimer = null;
+  }
+  if (!zoomMod) return;
+  zoomMod = 0;
+  if (send) sendKbdState();
+  else renderActiveKeys(effectiveMods());
+}
+
 function releaseAll() {
   typeSendAbort = true;
-  const wasActive = sentInput || switcherMod !== 0;
+  const wasActive = sentInput || switcherMod !== 0 || zoomMod !== 0;
   physMods = 0;
   switcherMod = 0;
+  zoomMod = 0;
+  if (zoomModTimer) {
+    clearTimeout(zoomModTimer);
+    zoomModTimer = null;
+  }
+  resetPinchAccum();
   heldKeys.length = 0;
   mouseButtons = 0;
   accDx = accDy = accWheel = 0;
@@ -369,6 +417,8 @@ function releaseLocalState() {
   sentInput = false;
   physMods = 0;
   switcherMod = 0;
+  clearZoomMod(false);
+  resetPinchAccum();
   heldKeys.length = 0;
   mouseButtons = 0;
   accDx = accDy = accWheel = 0;
@@ -411,6 +461,7 @@ trackpad.addEventListener("mousedown", (e) => {
     return;
   }
   e.preventDefault();
+  clearZoomMod(true);
   capturedMouseDown = true;
   mouseButtons |= domButtonToBit(e.button);
   flushMouse(true);
@@ -448,13 +499,136 @@ window.addEventListener("mousemove", (e) => {
   }
 });
 
+function normalizeWheelDeltaY(e) {
+  if (e.deltaMode === 1) return e.deltaY * 16;
+  if (e.deltaMode === 2) return e.deltaY * 100;
+  return e.deltaY;
+}
+
+// Handles pinch zoom deltas using standard wheel polarity:
+// deltaY < 0 = pinch out (zoom in), deltaY > 0 = pinch in (zoom out).
+function handlePinchDelta(deltaY) {
+  const mode = pinchMode.value;
+  if (mode === "off" || !deltaY) return false;
+
+  if (pinchResetTimer) clearTimeout(pinchResetTimer);
+  pinchResetTimer = setTimeout(resetPinchAccum, PINCH_RESET_MS);
+  pinchAcc += deltaY;
+
+  if (mode === "cmd-keys") {
+    if (Math.abs(pinchAcc) < PINCH_KEY_STEP) return true;
+    const now = performance.now();
+    // Firmware macro timer cancels any prior hold; space taps past hold_ms so the OS sees distinct presses.
+    if (now - lastZoomMacroMs < PINCH_MACRO_COOLDOWN_MS) {
+      pinchAcc = Math.sign(pinchAcc) * PINCH_KEY_STEP;
+      return true;
+    }
+    const zoomIn = pinchAcc < 0;
+    pinchAcc = Math.sign(pinchAcc) * (Math.abs(pinchAcc) - PINCH_KEY_STEP);
+    if (Math.abs(pinchAcc) > PINCH_KEY_STEP) pinchAcc = Math.sign(pinchAcc) * PINCH_KEY_STEP;
+    lastZoomMacroMs = now;
+    sendMacro(MOD_LMETA, [zoomIn ? HID_EQUAL : HID_MINUS], 25);
+    return true;
+  }
+
+  if (mode === "ctrl-wheel") {
+    if (zoomModTimer) clearTimeout(zoomModTimer);
+    zoomModTimer = setTimeout(() => clearZoomMod(true), PINCH_CTRL_HOLD_MS);
+    if (!zoomMod) {
+      zoomMod = MOD_LCTRL;
+      sendKbdState();
+    }
+    const steps = Math.trunc(pinchAcc / PINCH_WHEEL_STEP);
+    if (steps !== 0) {
+      pinchAcc -= steps * PINCH_WHEEL_STEP;
+      // Same polarity convention as normal wheel: local deltaY sign maps to target deltaY sign.
+      accWheel += invertScroll.checked ? -steps : steps;
+      scheduleMouseFlush();
+    }
+    return true;
+  }
+
+  return false;
+}
+
 trackpad.addEventListener("wheel", (e) => {
   if (!isCaptured() && document.activeElement !== trackpad) return;
   e.preventDefault();
+  // Browsers synthesize wheel + ctrlKey for trackpad pinch without firing a Control keydown.
+  const physCtrl = (physMods & (MOD_LCTRL | MOD_RCTRL)) !== 0;
+  if (e.ctrlKey && !physCtrl && pinchMode.value !== "off") {
+    if (safariGesture) safariSawWheel = true;
+    handlePinchDelta(normalizeWheelDeltaY(e));
+    return;
+  }
+  clearZoomMod(true);
   const dir = e.deltaY > 0 ? 1 : -1;
   accWheel += invertScroll.checked ? -dir : dir;
   scheduleMouseFlush();
 }, { passive: false });
+
+// Safari trackpad pinch fallback (gesturestart/change/end).
+trackpad.addEventListener("gesturestart", (e) => {
+  if (!isCaptured() && document.activeElement !== trackpad) return;
+  e.preventDefault();
+  safariGesture = true;
+  safariGestureScale = e.scale || 1;
+  safariSawWheel = false;
+}, { passive: false });
+
+trackpad.addEventListener("gesturechange", (e) => {
+  if (!safariGesture) return;
+  e.preventDefault();
+  const scale = e.scale || 1;
+  if (!safariSawWheel && safariGestureScale > 0 && scale > 0) {
+    handlePinchDelta(-Math.log(scale / safariGestureScale) * 200);
+  }
+  safariGestureScale = scale;
+}, { passive: false });
+
+trackpad.addEventListener("gestureend", (e) => {
+  if (!safariGesture) return;
+  e.preventDefault();
+  safariGesture = false;
+  safariSawWheel = false;
+  resetPinchAccum();
+  clearZoomMod(true);
+}, { passive: false });
+
+// Touchscreen two-finger pinch support for phones/tablets.
+function touchPinchDist(touches) {
+  const dx = touches[1].clientX - touches[0].clientX;
+  const dy = touches[1].clientY - touches[0].clientY;
+  return Math.hypot(dx, dy);
+}
+
+trackpad.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 2 && pinchMode.value !== "off") {
+    e.preventDefault();
+    lastTouchPinchDist = touchPinchDist(e.touches);
+    resetPinchAccum();
+  }
+}, { passive: false });
+
+trackpad.addEventListener("touchmove", (e) => {
+  if (e.touches.length === 2 && lastTouchPinchDist > 0 && pinchMode.value !== "off") {
+    e.preventDefault();
+    const dist = touchPinchDist(e.touches);
+    const dd = dist - lastTouchPinchDist;
+    lastTouchPinchDist = dist;
+    handlePinchDelta(-dd * 0.7);
+  }
+}, { passive: false });
+
+function endTouchPinch(e) {
+  if (e.touches.length < 2 && lastTouchPinchDist > 0) {
+    lastTouchPinchDist = 0;
+    resetPinchAccum();
+    clearZoomMod(true);
+  }
+}
+trackpad.addEventListener("touchend", endTouchPinch);
+trackpad.addEventListener("touchcancel", endTouchPinch);
 
 // ── 6KRO Keyboard Capture ───────────────────────────────────────────────────
 function shouldCaptureKey(e) {
@@ -465,10 +639,14 @@ function shouldCaptureKey(e) {
 window.addEventListener("keydown", (e) => {
   if (!shouldCaptureKey(e)) return;
   // Let Esc unlock Pointer Lock naturally if user isn't holding modifiers
-  if (e.code === "Escape" && isCaptured() && effectiveMods() === 0) return;
+  if (e.code === "Escape" && isCaptured() && (effectiveMods() & ~zoomMod) === 0) {
+    clearZoomMod(true);
+    return;
+  }
 
   e.preventDefault();
   if (e.repeat) return;
+  clearZoomMod(true);
 
   // Optional CapsLock -> Cmd remap so physical CapsLock + Space sends Cmd + Space
   if (e.code === "CapsLock" && capsCmd.checked) {
@@ -625,6 +803,7 @@ async function sendTextString(str) {
   typeSending = true;
   typeSendAbort = false;
   typeSendBtn.disabled = true;
+  typeEnterBtn.disabled = true;
   typeStopBtn.hidden = false;
   try {
     let sent = 0;
@@ -642,6 +821,7 @@ async function sendTextString(str) {
     typeSending = false;
     typeSendAbort = false;
     typeSendBtn.disabled = false;
+    typeEnterBtn.disabled = false;
     typeStopBtn.hidden = true;
     updateTypeStats();
   }
@@ -653,6 +833,11 @@ typeSendBtn.addEventListener("click", () => {
   const txt = typeInput.value;
   if (!txt) return;
   sendTextString(txt);
+});
+
+typeEnterBtn.addEventListener("click", () => {
+  if (typeSending) return;
+  sendMacro(0, [CODE_TO_HID.Enter], 35);
 });
 
 typeStopBtn.addEventListener("click", () => {
@@ -687,7 +872,29 @@ typeInput.addEventListener("keydown", (e) => {
   }
 });
 
+function initPinchMode() {
+  try {
+    const saved = localStorage.getItem(PINCH_STORAGE_KEY);
+    if (saved && ["cmd-keys", "ctrl-wheel", "off"].includes(saved)) {
+      pinchMode.value = saved;
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+pinchMode.addEventListener("change", () => {
+  clearZoomMod(true);
+  resetPinchAccum();
+  try {
+    localStorage.setItem(PINCH_STORAGE_KEY, pinchMode.value);
+  } catch {
+    // ignore storage errors
+  }
+});
+
 initTheme();
+initPinchMode();
 updateTypeStats();
 
 connectBtn.addEventListener("click", () => {

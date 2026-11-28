@@ -46,13 +46,20 @@
           <label>Speed <input id="sensSlider" type="range" min="0.3" max="3.0" step="0.1" value="1.0" /> <span id="sensVal">1.0x</span></label>
           <label class="chk"><input id="invertScroll" type="checkbox" /> Invert Scroll</label>
           <label class="chk"><input id="capsCmd" type="checkbox" checked /> CapsLock &rarr; Cmd</label>
+          <label class="opt-select">Pinch
+            <select id="pinchMode" title="How trackpad and touchscreen pinch-to-zoom is sent to the target">
+              <option value="cmd-keys" selected>Cmd &plusmn;</option>
+              <option value="ctrl-wheel">Ctrl + Scroll</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
         </div>
       </div>
 
       <div id="trackpad" class="trackpad" tabindex="0">
         <div class="pad-overlay" id="padOverlay">
           <div class="pad-title">Click here to capture Mouse &amp; Keyboard</div>
-          <div class="pad-sub">Pointer Lock captures raw movement, clicks, and scroll wheel. Press <strong>Esc</strong> to unlock.</div>
+          <div class="pad-sub">Pointer Lock captures raw movement, clicks, scroll, and pinch-to-zoom. Press <strong>Esc</strong> to unlock.</div>
           <div class="pad-sub">Tip: With <strong>CapsLock &rarr; Cmd</strong> enabled (or sticky Cmd below), press <strong>CapsLock + Space</strong> to trigger remote <strong>Cmd + Space</strong>.</div>
         </div>
         <div class="active-keys" id="activeKeys">Active keys: none</div>
@@ -95,6 +102,9 @@
           <button class="btn macro-btn" data-mod="8" data-keys="6">Cmd + C</button>
           <button class="btn macro-btn" data-mod="8" data-keys="25">Cmd + V</button>
           <button class="btn macro-btn" data-mod="8" data-keys="29">Cmd + Z</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="46">Zoom In (Cmd +)</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="45">Zoom Out (Cmd -)</button>
+          <button class="btn macro-btn" data-mod="8" data-keys="39">Zoom 100% (Cmd 0)</button>
           <button class="btn macro-btn" data-mod="5" data-keys="76">Ctrl + Alt + Del</button>
           <button class="btn macro-btn" data-mod="0" data-keys="41">Esc</button>
           <button class="btn macro-btn" data-mod="0" data-keys="61">F4</button>
@@ -119,6 +129,7 @@
         ></textarea>
         <div class="type-actions">
           <button id="typeSendBtn" class="btn primary" type="button">Send Text</button>
+          <button id="typeEnterBtn" class="btn" type="button" title="Send Enter key">Enter</button>
           <button id="typeStopBtn" class="btn danger" type="button" hidden>Stop</button>
           <button id="typeCopyBtn" class="btn" type="button">Copy</button>
           <button id="typeClearBtn" class="btn" type="button">Clear</button>
